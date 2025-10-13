@@ -1,4 +1,5 @@
 import Monitor from "../models/Monitor.js";
+import { encryptAuthConfig, maskValue } from "../utils/encryption.js";
 
 // @desc    Create new monitor
 // @route   POST /api/monitors
@@ -14,6 +15,8 @@ export const createMonitor = async (req, res) => {
       httpMethod,
       requestHeaders,
       requestBody,
+      authType,
+      authConfig,
       alertsEnabled,
       alertEmail,
       notifyOnRecovery,
@@ -42,6 +45,18 @@ export const createMonitor = async (req, res) => {
       });
     }
 
+    // Encrypt auth configuration if provided
+    let encryptedAuthConfig = null;
+    if (authType && authType !== "none" && authConfig) {
+      encryptedAuthConfig = encryptAuthConfig(authType, authConfig);
+      if (!encryptedAuthConfig) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid authentication configuration",
+        });
+      }
+    }
+
     // Create monitor
     const monitor = await Monitor.create({
       name,
@@ -53,6 +68,8 @@ export const createMonitor = async (req, res) => {
       httpMethod,
       requestHeaders,
       requestBody,
+      authType: authType || "none",
+      authConfig: encryptedAuthConfig,
       alertsEnabled,
       alertEmail: alertEmail || req.user.email,
       notifyOnRecovery,
@@ -60,9 +77,13 @@ export const createMonitor = async (req, res) => {
       tags,
     });
 
+    // Return monitor without authConfig
+    const monitorResponse = monitor.toObject();
+    delete monitorResponse.authConfig;
+
     res.status(201).json({
       success: true,
-      data: monitor,
+      data: monitorResponse,
     });
   } catch (error) {
     res.status(500).json({
@@ -94,7 +115,9 @@ export const getMonitors = async (req, res) => {
       query.tags = { $in: tags.split(",") };
     }
 
-    const monitors = await Monitor.find(query).sort(sortBy);
+    const monitors = await Monitor.find(query)
+      .sort(sortBy)
+      .select("-authConfig"); // Exclude encrypted auth config from response
 
     res.status(200).json({
       success: true,
@@ -117,7 +140,7 @@ export const getMonitor = async (req, res) => {
     const monitor = await Monitor.findOne({
       _id: req.params.id,
       userId: req.user._id,
-    });
+    }).select("-authConfig"); // Exclude encrypted auth config from response
 
     if (!monitor) {
       return res.status(404).json({
@@ -171,6 +194,33 @@ export const updateMonitor = async (req, res) => {
       }
     }
 
+    // Handle authentication configuration update
+    if (req.body.authType !== undefined) {
+      monitor.authType = req.body.authType;
+
+      // Only update auth config if new credentials are provided
+      if (req.body.authConfig !== undefined) {
+        if (req.body.authType !== "none" && req.body.authConfig) {
+          // Encrypt new auth config if provided
+          const encryptedAuthConfig = encryptAuthConfig(
+            req.body.authType,
+            req.body.authConfig
+          );
+          if (!encryptedAuthConfig) {
+            return res.status(400).json({
+              success: false,
+              message: "Invalid authentication configuration",
+            });
+          }
+          monitor.authConfig = encryptedAuthConfig;
+        } else if (req.body.authType === "none") {
+          // Clear auth config if type is "none"
+          monitor.authConfig = null;
+        }
+        // If authConfig is null and authType is not "none", keep existing config
+      }
+    }
+
     // Fields that can be updated
     const allowedUpdates = [
       "name",
@@ -178,6 +228,7 @@ export const updateMonitor = async (req, res) => {
       "checkInterval",
       "timeout",
       "retryAttempts",
+      "serverType",
       "httpMethod",
       "requestHeaders",
       "requestBody",
@@ -198,9 +249,13 @@ export const updateMonitor = async (req, res) => {
 
     await monitor.save();
 
+    // Return monitor without authConfig
+    const monitorResponse = monitor.toObject();
+    delete monitorResponse.authConfig;
+
     res.status(200).json({
       success: true,
-      data: monitor,
+      data: monitorResponse,
     });
   } catch (error) {
     res.status(500).json({
@@ -272,6 +327,12 @@ export const getMonitorStats = async (req, res) => {
         failedChecks: monitor.failedChecks,
         successfulChecks: monitor.totalChecks - monitor.failedChecks,
       },
+      authentication: {
+        authType: monitor.authType,
+        authStatus: monitor.authStatus,
+        lastAuthCheckAt: monitor.lastAuthCheckAt,
+        authErrorMessage: monitor.authErrorMessage,
+      },
       lastCheckedAt: monitor.lastCheckedAt,
     };
 
@@ -308,10 +369,14 @@ export const pauseMonitor = async (req, res) => {
     monitor.isActive = false;
     await monitor.save();
 
+    // Return monitor without authConfig
+    const monitorResponse = monitor.toObject();
+    delete monitorResponse.authConfig;
+
     res.status(200).json({
       success: true,
       message: "Monitor paused successfully",
-      data: monitor,
+      data: monitorResponse,
     });
   } catch (error) {
     res.status(500).json({
@@ -342,10 +407,14 @@ export const resumeMonitor = async (req, res) => {
     monitor.isActive = true;
     await monitor.save();
 
+    // Return monitor without authConfig
+    const monitorResponse = monitor.toObject();
+    delete monitorResponse.authConfig;
+
     res.status(200).json({
       success: true,
       message: "Monitor resumed successfully",
-      data: monitor,
+      data: monitorResponse,
     });
   } catch (error) {
     res.status(500).json({

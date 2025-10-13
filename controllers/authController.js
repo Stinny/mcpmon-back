@@ -40,11 +40,15 @@ export const signup = async (req, res) => {
     });
 
     if (user) {
+      // Get user without password
+      const userWithoutPassword = await User.findById(user._id).select("-password");
+      const userObj = userWithoutPassword.toObject();
+
       res.status(201).json({
         success: true,
         data: {
-          id: user._id,
-          email: user.email,
+          ...userObj,
+          id: userObj._id,
           token: generateToken(user._id),
         },
       });
@@ -97,11 +101,15 @@ export const login = async (req, res) => {
       });
     }
 
+    // Get user without password
+    const userWithoutPassword = await User.findById(user._id).select("-password");
+    const userObj = userWithoutPassword.toObject();
+
     res.status(200).json({
       success: true,
       data: {
-        id: user._id,
-        email: user.email,
+        ...userObj,
+        id: userObj._id,
         token: generateToken(user._id),
       },
     });
@@ -123,6 +131,97 @@ export const getMe = async (req, res) => {
     res.status(200).json({
       success: true,
       data: user,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+// @desc    Update user profile
+// @route   PUT /api/auth/profile
+// @access  Private
+export const updateProfile = async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id);
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    // Fields that can be updated
+    const { name, email, phone } = req.body;
+
+    // Check if email is being changed and if it's already taken
+    if (email && email !== user.email) {
+      const emailExists = await User.findOne({ email });
+      if (emailExists) {
+        return res.status(400).json({
+          success: false,
+          message: "Email is already in use",
+        });
+      }
+      user.email = email;
+    }
+
+    // Update fields if provided
+    if (name !== undefined) user.name = name;
+    if (phone !== undefined) user.phone = phone;
+
+    await user.save();
+
+    // Return user without password
+    const updatedUser = await User.findById(user._id).select("-password");
+
+    res.status(200).json({
+      success: true,
+      data: updatedUser,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+// @desc    Update alert preferences
+// @route   PUT /api/auth/alerts
+// @access  Private
+export const updateAlertPreferences = async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id);
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    const { emailAlertsEnabled, smsAlertsEnabled } = req.body;
+
+    // Update alert preferences if provided
+    if (emailAlertsEnabled !== undefined) {
+      user.emailAlertsEnabled = emailAlertsEnabled;
+    }
+    if (smsAlertsEnabled !== undefined) {
+      user.smsAlertsEnabled = smsAlertsEnabled;
+    }
+
+    await user.save();
+
+    // Return user without password
+    const updatedUser = await User.findById(user._id).select("-password");
+
+    res.status(200).json({
+      success: true,
+      data: updatedUser,
     });
   } catch (error) {
     res.status(500).json({

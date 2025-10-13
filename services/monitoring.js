@@ -35,7 +35,9 @@ export async function checkSingleMonitor(monitor) {
       // Handle warnings (e.g., HTTP errors like 4xx, 5xx)
       if (result.warning) {
         monitor.lastError = result.warning;
-        console.log(`⚠ Monitor "${monitor.name}" is UP but returned: ${result.warning} (${responseTime}ms)`);
+        console.log(
+          `⚠ Monitor "${monitor.name}" is UP but returned: ${result.warning} (${responseTime}ms)`,
+        );
       } else {
         monitor.lastError = null;
         console.log(`✓ Monitor "${monitor.name}" is UP (${responseTime}ms)`);
@@ -72,6 +74,24 @@ export async function checkSingleMonitor(monitor) {
     // Calculate uptime percentage
     monitor.uptimePercentage = monitor.calculateUptime();
 
+    // Update auth status if present in the check result
+    if (result.authStatus) {
+      monitor.authStatus = result.authStatus;
+      monitor.lastAuthCheckAt = new Date();
+
+      // Update auth error message
+      if (result.authError && result.warning) {
+        monitor.authErrorMessage = result.warning;
+      } else if (
+        result.authStatus === "valid" ||
+        result.authStatus === "not-required"
+      ) {
+        monitor.authErrorMessage = null; // Clear error on successful auth or when auth not required
+      } else if (result.authStatus === "untested" && result.warning) {
+        monitor.authErrorMessage = result.warning; // Store the 401/403 message
+      }
+    }
+
     // Save the updated monitor
     await monitor.save();
 
@@ -84,6 +104,8 @@ export async function checkSingleMonitor(monitor) {
       error: result.error,
       warning: result.warning,
       statusCode: result.statusCode,
+      authStatus: monitor.authStatus,
+      authErrorMessage: monitor.authErrorMessage,
     };
 
     // Broadcast update to WebSocket clients
@@ -98,6 +120,9 @@ export async function checkSingleMonitor(monitor) {
       totalChecks: monitor.totalChecks,
       lastChecked: monitor.lastChecked,
       lastError: monitor.lastError,
+      authStatus: monitor.authStatus,
+      authErrorMessage: monitor.authErrorMessage,
+      lastAuthCheckAt: monitor.lastAuthCheckAt,
     });
 
     return checkResult;

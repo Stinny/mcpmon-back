@@ -23,6 +23,9 @@ export function initializeWebSocket(server) {
   wss.on("connection", (ws, req) => {
     console.log("New WebSocket connection attempt");
 
+    // Mark connection as alive
+    ws.isAlive = true;
+
     // Extract token from query string
     const url = new URL(req.url, `http://${req.headers.host}`);
     const token = url.searchParams.get("token");
@@ -37,7 +40,7 @@ export function initializeWebSocket(server) {
     try {
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
       ws.userId = decoded.id;
-      console.log(`WebSocket authenticated for user: ${ws.userId}`);
+      console.log(`WebSocket authenticated for user: ${ws.userId} (Total clients: ${wss.clients.size})`);
 
       // Send welcome message
       ws.send(
@@ -52,6 +55,11 @@ export function initializeWebSocket(server) {
       ws.close(1008, "Invalid authentication token");
       return;
     }
+
+    // Handle pong responses for heartbeat
+    ws.on("pong", () => {
+      ws.isAlive = true;
+    });
 
     // Handle client messages
     ws.on("message", (message) => {
@@ -75,13 +83,31 @@ export function initializeWebSocket(server) {
 
     // Handle connection close
     ws.on("close", () => {
-      console.log(`WebSocket disconnected for user: ${ws.userId}`);
+      console.log(`WebSocket disconnected for user: ${ws.userId} (Total clients: ${wss.clients.size})`);
     });
 
     // Handle errors
     ws.on("error", (error) => {
       console.error("WebSocket error:", error);
+      ws.terminate();
     });
+  });
+
+  // Set up heartbeat interval to detect dead connections
+  const heartbeatInterval = setInterval(() => {
+    wss.clients.forEach((ws) => {
+      if (ws.isAlive === false) {
+        console.log(`Terminating dead WebSocket connection for user: ${ws.userId}`);
+        return ws.terminate();
+      }
+
+      ws.isAlive = false;
+      ws.ping();
+    });
+  }, 30000); // Check every 30 seconds
+
+  wss.on("close", () => {
+    clearInterval(heartbeatInterval);
   });
 
   return wss;

@@ -51,6 +51,11 @@ const monitorSchema = new mongoose.Schema(
       min: [1, "Must have at least 1 retry attempt"],
       max: [10, "Cannot exceed 10 retry attempts"],
     },
+    serverType: {
+      type: String,
+      enum: ["http-jsonrpc", "sse", "sse-session"],
+      default: "http-jsonrpc",
+    },
     httpMethod: {
       type: String,
       enum: ["GET", "POST"],
@@ -71,6 +76,34 @@ const monitorSchema = new mongoose.Schema(
         id: "health-check",
         method: "ping",
       }),
+    },
+
+    // Authentication configuration
+    authType: {
+      type: String,
+      enum: ["none", "api-key", "bearer-token", "custom-headers"],
+      default: "none",
+    },
+    authConfig: {
+      type: mongoose.Schema.Types.Mixed,
+      default: null,
+      // Will store encrypted auth data:
+      // For 'api-key': { headerName: 'X-API-Key', apiKey: 'encrypted-key' }
+      // For 'bearer-token': { token: 'encrypted-token' }
+      // For 'custom-headers': { headers: { 'Header-Name': 'encrypted-value' } }
+    },
+    authStatus: {
+      type: String,
+      enum: ["valid", "invalid", "untested", "not-required"],
+      default: "not-required",
+    },
+    lastAuthCheckAt: {
+      type: Date,
+      default: null,
+    },
+    authErrorMessage: {
+      type: String,
+      default: null,
     },
 
     // Monitoring data
@@ -170,7 +203,11 @@ monitorSchema.methods.calculateUptime = function () {
 };
 
 // Method to update monitor status
-monitorSchema.methods.updateStatus = async function (isUp, responseTime = 0) {
+monitorSchema.methods.updateStatus = async function (
+  isUp,
+  responseTime = 0,
+  checkResult = {},
+) {
   this.lastCheckedAt = new Date();
   this.totalChecks += 1;
 
@@ -191,6 +228,19 @@ monitorSchema.methods.updateStatus = async function (isUp, responseTime = 0) {
     this.status = "down";
     this.lastDowntime = new Date();
     this.failedChecks += 1;
+  }
+
+  // Update auth status if present in check result
+  if (checkResult.authStatus) {
+    this.authStatus = checkResult.authStatus;
+    this.lastAuthCheckAt = new Date();
+
+    // Update auth error message
+    if (checkResult.authError && checkResult.warning) {
+      this.authErrorMessage = checkResult.warning;
+    } else if (checkResult.authStatus === "valid") {
+      this.authErrorMessage = null; // Clear error on successful auth
+    }
   }
 
   this.uptimePercentage = this.calculateUptime();
