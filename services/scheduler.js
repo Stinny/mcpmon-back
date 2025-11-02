@@ -1,78 +1,70 @@
 /**
  * Scheduler Service
- * Manages cron jobs for periodic monitor checks
+ * Manages periodic monitor checks using setInterval
  */
 
-import cron from "node-cron";
 import { checkAllMonitors } from "./monitoring.js";
 
-let monitorCheckJob = null;
+let monitorCheckInterval = null;
 
 /**
- * Start the monitor check cron job
+ * Start the monitor check scheduler
  * Runs every 1 minute by default
+ * @param {number} intervalMinutes - Interval in minutes (default: 1)
  */
-export function startScheduler(cronExpression = "* * * * *") {
-  // Stop existing job if running
-  if (monitorCheckJob) {
+export function startScheduler(intervalMinutes = 1) {
+  // Stop existing interval if running
+  if (monitorCheckInterval) {
     console.log("Stopping existing monitor check scheduler...");
-    monitorCheckJob.stop();
+    clearInterval(monitorCheckInterval);
   }
 
-  // Validate cron expression
-  if (!cron.validate(cronExpression)) {
-    throw new Error(`Invalid cron expression: ${cronExpression}`);
-  }
+  const intervalMs = intervalMinutes * 60 * 1000;
 
   console.log(`\n========================================`);
   console.log(`Starting Monitor Check Scheduler`);
-  console.log(`Schedule: ${cronExpression} (every 1 minute)`);
+  console.log(`Interval: Every ${intervalMinutes} minute(s)`);
   console.log(`Started at: ${new Date().toISOString()}`);
   console.log(`========================================\n`);
 
-  // Create and start the cron job
-  monitorCheckJob = cron.schedule(
-    cronExpression,
-    async () => {
-      console.log(
-        `\n[${new Date().toISOString()}] Running scheduled monitor checks...`,
+  // Create and start the interval
+  monitorCheckInterval = setInterval(async () => {
+    console.log(
+      `\n[${new Date().toISOString()}] 🔔 SCHEDULER TRIGGERED - Running scheduled monitor checks...`,
+    );
+
+    try {
+      const results = await checkAllMonitors();
+
+      console.log(`[${new Date().toISOString()}] Check completed:`, {
+        total: results.total,
+        successful: results.successful,
+        failed: results.failed,
+      });
+    } catch (error) {
+      console.error(
+        `[${new Date().toISOString()}] Scheduled check failed:`,
+        error,
       );
-
-      try {
-        const results = await checkAllMonitors();
-
-        console.log(`[${new Date().toISOString()}] Check completed:`, {
-          total: results.total,
-          successful: results.successful,
-          failed: results.failed,
-        });
-      } catch (error) {
-        console.error(
-          `[${new Date().toISOString()}] Scheduled check failed:`,
-          error,
-        );
-      }
-    },
-    {
-      scheduled: true,
-      timezone: "America/New_York", // Change to your timezone
-    },
-  );
+    }
+  }, intervalMs);
 
   console.log("✓ Monitor check scheduler started successfully");
-  console.log("  Monitors will be checked every 1 minute\n");
+  console.log(`✓ Interval set: ${intervalMs}ms (${intervalMinutes} minute(s))`);
+  console.log(`✓ Next execution in ${intervalMinutes} minute(s)`);
+  console.log(`✓ Scheduler will run every ${intervalMinutes} minute(s)\n`);
 
-  return monitorCheckJob;
+  return monitorCheckInterval;
 }
 
 /**
- * Stop the monitor check cron job
+ * Stop the monitor check scheduler
  */
 export function stopScheduler() {
-  if (monitorCheckJob) {
+  if (monitorCheckInterval) {
     console.log("\nStopping monitor check scheduler...");
-    monitorCheckJob.stop();
-    monitorCheckJob = null;
+    clearInterval(monitorCheckInterval);
+    monitorCheckInterval = null;
     console.log("✓ Monitor check scheduler stopped\n");
     return true;
   }
@@ -86,8 +78,8 @@ export function stopScheduler() {
  */
 export function getSchedulerStatus() {
   return {
-    isRunning: monitorCheckJob !== null,
-    job: monitorCheckJob,
+    isRunning: monitorCheckInterval !== null,
+    interval: monitorCheckInterval,
   };
 }
 

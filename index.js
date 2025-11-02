@@ -6,13 +6,13 @@ import connectDB from "./config/db.js";
 import indexRoutes from "./routes/index.js";
 import authRoutes from "./routes/auth.js";
 import monitorRoutes from "./routes/monitors.js";
-import { startScheduler } from "./services/scheduler.js";
+import feedbackRoutes from "./routes/feedback.js";
+import contactRoutes from "./routes/contact.js";
+import subscribeRoutes from "./routes/subscribe.js";
+import { startScheduler, runImmediateCheck } from "./services/scheduler.js";
 import { initializeWebSocket, closeWebSocket } from "./services/websocket.js";
 
 dotenv.config();
-
-// Connect to database
-connectDB();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -22,18 +22,49 @@ app.use(express.json());
 
 app.use("/api/auth", authRoutes);
 app.use("/api/monitors", monitorRoutes);
+app.use("/api/feedback", feedbackRoutes);
+app.use("/api/contact", contactRoutes);
+app.use("/api/subscribe", subscribeRoutes);
 app.use("/", indexRoutes);
 
 // Create HTTP server and integrate WebSocket
 const server = createServer(app);
 initializeWebSocket(server);
 
-server.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
+// Connect to database and start server
+async function startServer() {
+  try {
+    console.log("🔄 Connecting to database...");
+    // Wait for database connection
+    await connectDB();
+    console.log("✅ Database connected successfully");
 
-  // Start the monitor check scheduler (runs every 1 minute)
-  startScheduler();
-});
+    server.listen(PORT, async () => {
+      console.log(`\n🚀 Server is running on port ${PORT}`);
+      console.log(`📅 Time: ${new Date().toISOString()}\n`);
+
+      // Start the monitor check scheduler (runs every 1 minute)
+      console.log("🕐 Starting scheduler...");
+      const job = startScheduler();
+      console.log("✅ Scheduler started:", job ? "SUCCESS" : "FAILED");
+
+      // Run an immediate check to verify everything works
+      console.log("\n🧪 Running immediate test check...");
+      try {
+        await runImmediateCheck();
+        console.log("✅ Test check completed successfully\n");
+      } catch (error) {
+        console.error("❌ Test check failed:", error.message);
+      }
+    });
+  } catch (error) {
+    console.error("❌ Failed to start server:", error);
+    process.exit(1);
+  }
+}
+
+console.log("🔵 Starting application...");
+startServer();
 
 // Graceful shutdown
 process.on("SIGINT", () => {

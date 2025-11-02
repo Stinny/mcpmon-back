@@ -51,22 +51,12 @@ const monitorSchema = new mongoose.Schema(
       min: [1, "Must have at least 1 retry attempt"],
       max: [10, "Cannot exceed 10 retry attempts"],
     },
-    serverType: {
-      type: String,
-      enum: ["http-jsonrpc", "sse", "sse-session"],
-      default: "http-jsonrpc",
-    },
-    httpMethod: {
-      type: String,
-      enum: ["GET", "POST"],
-      default: "POST",
-    },
     requestHeaders: {
       type: Map,
       of: String,
       default: () => ({
         "Content-Type": "application/json",
-        Accept: "application/json, text/event-stream",
+        Accept: "application/json",
       }),
     },
     requestBody: {
@@ -78,33 +68,6 @@ const monitorSchema = new mongoose.Schema(
       }),
     },
 
-    // Authentication configuration
-    authType: {
-      type: String,
-      enum: ["none", "api-key", "bearer-token", "custom-headers"],
-      default: "none",
-    },
-    authConfig: {
-      type: mongoose.Schema.Types.Mixed,
-      default: null,
-      // Will store encrypted auth data:
-      // For 'api-key': { headerName: 'X-API-Key', apiKey: 'encrypted-key' }
-      // For 'bearer-token': { token: 'encrypted-token' }
-      // For 'custom-headers': { headers: { 'Header-Name': 'encrypted-value' } }
-    },
-    authStatus: {
-      type: String,
-      enum: ["valid", "invalid", "untested", "not-required"],
-      default: "not-required",
-    },
-    lastAuthCheckAt: {
-      type: Date,
-      default: null,
-    },
-    authErrorMessage: {
-      type: String,
-      default: null,
-    },
 
     // Monitoring data
     lastCheckedAt: {
@@ -157,11 +120,31 @@ const monitorSchema = new mongoose.Schema(
       default: true,
     },
 
+    // Alert tracking
+    consecutiveFailures: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    lastAlertSentAt: {
+      type: Date,
+      default: null,
+    },
+    alertsSentCount: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    lastStatusChangeAt: {
+      type: Date,
+      default: null,
+    },
+
     // Metadata
     description: {
       type: String,
       trim: true,
-      maxlength: [500, "Description cannot exceed 500 characters"],
+      maxlength: [150, "Description cannot exceed 150 characters"],
     },
     tags: {
       type: [String],
@@ -228,19 +211,6 @@ monitorSchema.methods.updateStatus = async function (
     this.status = "down";
     this.lastDowntime = new Date();
     this.failedChecks += 1;
-  }
-
-  // Update auth status if present in check result
-  if (checkResult.authStatus) {
-    this.authStatus = checkResult.authStatus;
-    this.lastAuthCheckAt = new Date();
-
-    // Update auth error message
-    if (checkResult.authError && checkResult.warning) {
-      this.authErrorMessage = checkResult.warning;
-    } else if (checkResult.authStatus === "valid") {
-      this.authErrorMessage = null; // Clear error on successful auth
-    }
   }
 
   this.uptimePercentage = this.calculateUptime();

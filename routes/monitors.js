@@ -4,8 +4,14 @@ import { protect } from "../middleware/auth.js";
 
 const router = express.Router();
 
-// All routes are protected - require authentication
+// Public routes (no authentication required)
+router.get("/public/:id", monitorController.getPublicMonitorStatus);
+
+// All routes below are protected - require authentication
 router.use(protect);
+
+// Dashboard stats (must come before /:id routes)
+router.get("/dashboard/stats", monitorController.getDashboardStats);
 
 // CRUD routes
 router.post("/", monitorController.createMonitor);

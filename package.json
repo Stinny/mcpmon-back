@@ -6,13 +6,15 @@
   "type": "module",
   "scripts": {
     "start": "node index.js",
-    "dev": "node index.js",
+    "dev": "nodemon index.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@react-email/components": "^0.5.7",
+    "@react-email/render": "^1.4.0",
     "bcrypt": "^6.0.0",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
@@ -20,6 +22,12 @@
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^8.19.1",
     "node-cron": "^4.2.1",
+    "react": "^19.2.0",
+    "resend": "^6.4.0",
     "ws": "^8.18.3"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.10",
+    "tsx": "^4.20.6"
   }
 }

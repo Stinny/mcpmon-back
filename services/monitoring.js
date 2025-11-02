@@ -4,8 +4,14 @@
  */
 
 import Monitor from "../models/Monitor.js";
+import User from "../models/User.js";
 import { testMCPConnection } from "./mcp-client.js";
 import { broadcastMonitorUpdate } from "./websocket.js";
+import {
+  sendMonitorDownAlert,
+  sendMonitorRecoveryAlert,
+  shouldSendDailyReminder,
+} from "./emailService.js";
 
 /**
  * Check a single monitor's health
@@ -16,6 +22,10 @@ export async function checkSingleMonitor(monitor) {
   const startTime = Date.now();
 
   try {
+    // Capture previous state for status transition detection
+    const previousStatus = monitor.status;
+    const previousConsecutiveFailures = monitor.consecutiveFailures || 0;
+
     // Test the MCP server connection
     const result = await testMCPConnection(monitor);
     const responseTime = Date.now() - startTime;
@@ -24,13 +34,50 @@ export async function checkSingleMonitor(monitor) {
     const isUp = result.success;
 
     // Update monitor document
-    monitor.lastChecked = new Date();
+    monitor.lastCheckedAt = new Date();
     monitor.totalChecks += 1;
 
+    let statusChanged = false;
+
     if (isUp) {
+      // Server is online
+      const wasOffline = previousStatus === "offline";
+
       monitor.status = "online";
       monitor.lastUptime = new Date();
       monitor.responseTime = responseTime;
+      monitor.consecutiveFailures = 0; // Reset consecutive failures
+
+      // Detect offline -> online transition (recovery)
+      if (wasOffline) {
+        statusChanged = true;
+        monitor.lastStatusChangeAt = new Date();
+
+        // Calculate downtime duration for recovery email
+        const downtimeDuration = monitor.lastStatusChangeAt - monitor.lastDowntime;
+
+        // Send recovery email if alerts are enabled
+        if (monitor.alertsEnabled && monitor.notifyOnRecovery) {
+          try {
+            const user = await User.findById(monitor.userId);
+            if (user) {
+              await sendMonitorRecoveryAlert(monitor, user, downtimeDuration);
+              console.log(
+                `📧 Recovery alert sent for monitor "${monitor.name}"`,
+              );
+            }
+          } catch (emailError) {
+            console.error(
+              `Failed to send recovery email for ${monitor.name}:`,
+              emailError,
+            );
+          }
+        }
+
+        // Reset alert tracking on recovery
+        monitor.alertsSentCount = 0;
+        monitor.lastAlertSentAt = null;
+      }
 
       // Handle warnings (e.g., HTTP errors like 4xx, 5xx)
       if (result.warning) {
@@ -42,15 +89,45 @@ export async function checkSingleMonitor(monitor) {
         monitor.lastError = null;
         console.log(`✓ Monitor "${monitor.name}" is UP (${responseTime}ms)`);
       }
-
-      // Calculate successfulChecks
-      const successfulChecks = monitor.totalChecks - monitor.failedChecks;
-      // Note: We don't have a successfulChecks field in the schema, so we derive it
     } else {
+      // Server is offline
+      const wasOnline = previousStatus === "online";
+
       monitor.status = "offline";
       monitor.responseTime = responseTime;
       monitor.lastError = result.error || "Connection failed";
       monitor.failedChecks += 1;
+      monitor.consecutiveFailures += 1;
+
+      // Detect online -> offline transition
+      if (wasOnline) {
+        statusChanged = true;
+        monitor.lastStatusChangeAt = new Date();
+        monitor.lastDowntime = new Date();
+      }
+
+      // Send initial downtime alert after 2-3 consecutive failures
+      const shouldSendInitialAlert =
+        monitor.consecutiveFailures >= 2 && previousConsecutiveFailures < 2;
+
+      if (shouldSendInitialAlert && monitor.alertsEnabled) {
+        try {
+          const user = await User.findById(monitor.userId);
+          if (user) {
+            await sendMonitorDownAlert(monitor, user, false);
+            monitor.lastAlertSentAt = new Date();
+            monitor.alertsSentCount = 1;
+            console.log(
+              `📧 Initial downtime alert sent for monitor "${monitor.name}"`,
+            );
+          }
+        } catch (emailError) {
+          console.error(
+            `Failed to send downtime email for ${monitor.name}:`,
+            emailError,
+          );
+        }
+      }
 
       // Log failure
       console.log(
@@ -58,7 +135,27 @@ export async function checkSingleMonitor(monitor) {
       );
     }
 
-    // Update average response time using the model's method
+    // Check if daily reminder should be sent (for monitors still offline)
+    if (monitor.status === "offline" && shouldSendDailyReminder(monitor)) {
+      try {
+        const user = await User.findById(monitor.userId);
+        if (user) {
+          await sendMonitorDownAlert(monitor, user, true); // isReminder = true
+          monitor.lastAlertSentAt = new Date();
+          monitor.alertsSentCount += 1;
+          console.log(
+            `📧 Daily reminder sent for monitor "${monitor.name}" (alert #${monitor.alertsSentCount})`,
+          );
+        }
+      } catch (emailError) {
+        console.error(
+          `Failed to send reminder email for ${monitor.name}:`,
+          emailError,
+        );
+      }
+    }
+
+    // Update average response time
     if (isUp) {
       if (monitor.totalChecks === 1) {
         monitor.averageResponseTime = responseTime;
@@ -74,24 +171,6 @@ export async function checkSingleMonitor(monitor) {
     // Calculate uptime percentage
     monitor.uptimePercentage = monitor.calculateUptime();
 
-    // Update auth status if present in the check result
-    if (result.authStatus) {
-      monitor.authStatus = result.authStatus;
-      monitor.lastAuthCheckAt = new Date();
-
-      // Update auth error message
-      if (result.authError && result.warning) {
-        monitor.authErrorMessage = result.warning;
-      } else if (
-        result.authStatus === "valid" ||
-        result.authStatus === "not-required"
-      ) {
-        monitor.authErrorMessage = null; // Clear error on successful auth or when auth not required
-      } else if (result.authStatus === "untested" && result.warning) {
-        monitor.authErrorMessage = result.warning; // Store the 401/403 message
-      }
-    }
-
     // Save the updated monitor
     await monitor.save();
 
@@ -104,8 +183,7 @@ export async function checkSingleMonitor(monitor) {
       error: result.error,
       warning: result.warning,
       statusCode: result.statusCode,
-      authStatus: monitor.authStatus,
-      authErrorMessage: monitor.authErrorMessage,
+      statusChanged,
     };
 
     // Broadcast update to WebSocket clients
@@ -118,25 +196,31 @@ export async function checkSingleMonitor(monitor) {
       averageResponseTime: monitor.averageResponseTime,
       uptimePercentage: monitor.uptimePercentage,
       totalChecks: monitor.totalChecks,
-      lastChecked: monitor.lastChecked,
+      lastCheckedAt: monitor.lastCheckedAt,
       lastError: monitor.lastError,
-      authStatus: monitor.authStatus,
-      authErrorMessage: monitor.authErrorMessage,
-      lastAuthCheckAt: monitor.lastAuthCheckAt,
+      consecutiveFailures: monitor.consecutiveFailures,
     });
 
     return checkResult;
   } catch (error) {
     const responseTime = Date.now() - startTime;
+    const previousStatus = monitor.status;
 
     // Update monitor with error
-    monitor.lastChecked = new Date();
+    monitor.lastCheckedAt = new Date();
     monitor.totalChecks += 1;
     monitor.status = "offline";
     monitor.responseTime = responseTime;
     monitor.lastError = error.message;
     monitor.failedChecks += 1;
+    monitor.consecutiveFailures += 1;
     monitor.uptimePercentage = monitor.calculateUptime();
+
+    // Track status change for exception case
+    if (previousStatus !== "offline") {
+      monitor.lastStatusChangeAt = new Date();
+      monitor.lastDowntime = new Date();
+    }
 
     await monitor.save();
 
@@ -161,8 +245,9 @@ export async function checkSingleMonitor(monitor) {
       averageResponseTime: monitor.averageResponseTime,
       uptimePercentage: monitor.uptimePercentage,
       totalChecks: monitor.totalChecks,
-      lastChecked: monitor.lastChecked,
+      lastCheckedAt: monitor.lastCheckedAt,
       lastError: monitor.lastError,
+      consecutiveFailures: monitor.consecutiveFailures,
     });
 
     return errorResult;
