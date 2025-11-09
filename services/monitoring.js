@@ -5,13 +5,14 @@
 
 import Monitor from "../models/Monitor.js";
 import User from "../models/User.js";
-import { testMCPConnection } from "./mcp-client.js";
+import { testMCPConnectionWithTools } from "./mcp-client.js";
 import { broadcastMonitorUpdate } from "./websocket.js";
 import {
   sendMonitorDownAlert,
   sendMonitorRecoveryAlert,
   shouldSendDailyReminder,
 } from "./emailService.js";
+import { sendMonitorDownSMS, sendMonitorRecoverySMS } from "./smsService.js";
 
 /**
  * Check a single monitor's health
@@ -26,12 +27,45 @@ export async function checkSingleMonitor(monitor) {
     const previousStatus = monitor.status;
     const previousConsecutiveFailures = monitor.consecutiveFailures || 0;
 
-    // Test the MCP server connection
-    const result = await testMCPConnection(monitor);
-    const responseTime = Date.now() - startTime;
+    // Test the MCP server connection with tool discovery
+    const result = await testMCPConnectionWithTools(monitor);
+    const responseTime = result.responseTime || Date.now() - startTime;
 
     // Determine if the check was successful
     const isUp = result.success;
+
+    // Update tools based on discovery result
+    if (monitor.toolsSyncEnabled) {
+      if (isUp) {
+        // Server is up - update tools (even if empty)
+        if (result.tools && result.tools.length > 0) {
+          monitor.tools = result.tools;
+          monitor.lastToolsSync = new Date();
+          console.log(
+            `🔧 Discovered ${result.tools.length} tools for monitor "${monitor.name}"`,
+          );
+        } else {
+          // Server is up but no tools discovered - clear tools array
+          monitor.tools = [];
+          monitor.lastToolsSync = new Date();
+          console.log(`🔧 No tools discovered for monitor "${monitor.name}"`);
+        }
+      } else {
+        // Server is offline - clear tools array
+        monitor.tools = [];
+        monitor.lastToolsSync = new Date();
+        console.log(
+          `🔧 Cleared tools for offline monitor "${monitor.name}"`,
+        );
+      }
+    } else if (result.tools && result.tools.length > 0) {
+      // Tools sync not enabled but tools were discovered anyway (shouldn't happen normally)
+      monitor.tools = result.tools;
+      monitor.lastToolsSync = new Date();
+      console.log(
+        `🔧 Discovered ${result.tools.length} tools for monitor "${monitor.name}"`,
+      );
+    }
 
     // Update monitor document
     monitor.lastCheckedAt = new Date();
@@ -54,22 +88,40 @@ export async function checkSingleMonitor(monitor) {
         monitor.lastStatusChangeAt = new Date();
 
         // Calculate downtime duration for recovery email
-        const downtimeDuration = monitor.lastStatusChangeAt - monitor.lastDowntime;
+        const downtimeDuration =
+          monitor.lastStatusChangeAt - monitor.lastDowntime;
 
-        // Send recovery email if alerts are enabled
+        // Send recovery alerts if enabled
         if (monitor.alertsEnabled && monitor.notifyOnRecovery) {
           try {
             const user = await User.findById(monitor.userId);
             if (user) {
+              // Send email alert
               await sendMonitorRecoveryAlert(monitor, user, downtimeDuration);
               console.log(
-                `📧 Recovery alert sent for monitor "${monitor.name}"`,
+                `📧 Recovery email sent for monitor "${monitor.name}"`,
               );
+
+              // Send SMS alert
+              const smsResult = await sendMonitorRecoverySMS(
+                monitor,
+                user,
+                downtimeDuration,
+              );
+              if (smsResult) {
+                console.log(
+                  `📱 Recovery SMS sent for monitor "${monitor.name}"`,
+                );
+              } else {
+                console.log(
+                  `📱 Recovery SMS skipped for monitor "${monitor.name}" (check SMS Service logs)`,
+                );
+              }
             }
-          } catch (emailError) {
+          } catch (alertError) {
             console.error(
-              `Failed to send recovery email for ${monitor.name}:`,
-              emailError,
+              `Failed to send recovery alerts for ${monitor.name}:`,
+              alertError,
             );
           }
         }
@@ -114,17 +166,31 @@ export async function checkSingleMonitor(monitor) {
         try {
           const user = await User.findById(monitor.userId);
           if (user) {
+            // Send email alert
             await sendMonitorDownAlert(monitor, user, false);
+            console.log(
+              `📧 Initial downtime email sent for monitor "${monitor.name}"`,
+            );
+
+            // Send SMS alert
+            const smsResult = await sendMonitorDownSMS(monitor, user, false);
+            if (smsResult) {
+              console.log(
+                `📱 Initial downtime SMS sent for monitor "${monitor.name}"`,
+              );
+            } else {
+              console.log(
+                `📱 Initial downtime SMS skipped for monitor "${monitor.name}" (check SMS Service logs)`,
+              );
+            }
+
             monitor.lastAlertSentAt = new Date();
             monitor.alertsSentCount = 1;
-            console.log(
-              `📧 Initial downtime alert sent for monitor "${monitor.name}"`,
-            );
           }
-        } catch (emailError) {
+        } catch (alertError) {
           console.error(
-            `Failed to send downtime email for ${monitor.name}:`,
-            emailError,
+            `Failed to send downtime alerts for ${monitor.name}:`,
+            alertError,
           );
         }
       }
@@ -140,17 +206,31 @@ export async function checkSingleMonitor(monitor) {
       try {
         const user = await User.findById(monitor.userId);
         if (user) {
+          // Send email reminder
           await sendMonitorDownAlert(monitor, user, true); // isReminder = true
+          console.log(
+            `📧 Daily reminder email sent for monitor "${monitor.name}" (alert #${monitor.alertsSentCount + 1})`,
+          );
+
+          // Send SMS reminder
+          const smsResult = await sendMonitorDownSMS(monitor, user, true); // isReminder = true
+          if (smsResult) {
+            console.log(
+              `📱 Daily reminder SMS sent for monitor "${monitor.name}" (alert #${monitor.alertsSentCount + 1})`,
+            );
+          } else {
+            console.log(
+              `📱 Daily reminder SMS skipped for monitor "${monitor.name}" (check SMS Service logs)`,
+            );
+          }
+
           monitor.lastAlertSentAt = new Date();
           monitor.alertsSentCount += 1;
-          console.log(
-            `📧 Daily reminder sent for monitor "${monitor.name}" (alert #${monitor.alertsSentCount})`,
-          );
         }
-      } catch (emailError) {
+      } catch (alertError) {
         console.error(
-          `Failed to send reminder email for ${monitor.name}:`,
-          emailError,
+          `Failed to send reminder alerts for ${monitor.name}:`,
+          alertError,
         );
       }
     }
@@ -260,8 +340,10 @@ export async function checkSingleMonitor(monitor) {
  */
 export async function checkAllMonitors() {
   try {
-    // Query all active monitors from the database
-    const monitors = await Monitor.find({ isActive: true });
+    // Query all active monitors from the database (include authToken for decryption)
+    const monitors = await Monitor.find({ isActive: true }).select(
+      "+authToken",
+    );
 
     if (monitors.length === 0) {
       console.log("No active monitors to check");

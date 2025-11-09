@@ -1,4 +1,5 @@
 import Monitor from "../models/Monitor.js";
+import { encryptAuthToken } from "../utils/encryption.js";
 
 // @desc    Create new monitor
 // @route   POST /api/monitors
@@ -18,6 +19,11 @@ export const createMonitor = async (req, res) => {
       notifyOnRecovery,
       description,
       tags,
+      authType,
+      authToken,
+      authHeaderName,
+      toolsSyncEnabled,
+      protocolVersion,
     } = req.body;
 
     // Validate required fields
@@ -41,6 +47,21 @@ export const createMonitor = async (req, res) => {
       });
     }
 
+    // Encrypt auth token if provided
+    let encryptedAuthToken = null;
+    if (authToken && authType && authType !== "none") {
+      try {
+        encryptedAuthToken = encryptAuthToken(authType, authToken);
+      } catch (encryptError) {
+        console.error("Encryption error:", encryptError);
+        return res.status(500).json({
+          success: false,
+          message:
+            "Failed to encrypt authentication token. Please check server configuration.",
+        });
+      }
+    }
+
     // Create monitor
     const monitor = await Monitor.create({
       name,
@@ -56,6 +77,11 @@ export const createMonitor = async (req, res) => {
       notifyOnRecovery,
       description,
       tags,
+      authType,
+      authToken: encryptedAuthToken,
+      authHeaderName,
+      toolsSyncEnabled,
+      protocolVersion,
     });
 
     res.status(201).json({
@@ -184,6 +210,10 @@ export const updateMonitor = async (req, res) => {
       "description",
       "tags",
       "isActive",
+      "authType",
+      "authHeaderName",
+      "toolsSyncEnabled",
+      "protocolVersion",
     ];
 
     // Update only allowed fields
@@ -192,6 +222,29 @@ export const updateMonitor = async (req, res) => {
         monitor[field] = req.body[field];
       }
     });
+
+    // Handle auth token encryption separately
+    if (req.body.authToken !== undefined) {
+      let encryptedAuthToken = null;
+      const tokenAuthType = req.body.authType || monitor.authType;
+
+      if (req.body.authToken && tokenAuthType && tokenAuthType !== "none") {
+        try {
+          encryptedAuthToken = encryptAuthToken(
+            tokenAuthType,
+            req.body.authToken,
+          );
+        } catch (encryptError) {
+          console.error("Encryption error:", encryptError);
+          return res.status(500).json({
+            success: false,
+            message:
+              "Failed to encrypt authentication token. Please check server configuration.",
+          });
+        }
+      }
+      monitor.authToken = encryptedAuthToken;
+    }
 
     await monitor.save();
 
@@ -358,7 +411,7 @@ export const resumeMonitor = async (req, res) => {
 export const getPublicMonitorStatus = async (req, res) => {
   try {
     const monitor = await Monitor.findById(req.params.id).select(
-      "name description url status uptimePercentage totalChecks averageResponseTime lastCheckedAt createdAt"
+      "name description url authType status uptimePercentage totalChecks averageResponseTime lastCheckedAt createdAt tools lastToolsSync protocolVersion",
     );
 
     if (!monitor) {
@@ -399,14 +452,14 @@ export const getDashboardStats = async (req, res) => {
       // Calculate average response time
       const totalResponseTime = monitors.reduce(
         (sum, m) => sum + (m.averageResponseTime || 0),
-        0
+        0,
       );
       avgResponseTime = Math.round(totalResponseTime / totalMonitors);
 
       // Calculate average uptime
       const totalUptime = monitors.reduce(
         (sum, m) => sum + (m.uptimePercentage || 0),
-        0
+        0,
       );
       avgUptime = (totalUptime / totalMonitors).toFixed(2);
     }

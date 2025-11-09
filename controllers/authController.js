@@ -2,6 +2,10 @@ import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import User from "../models/User.js";
 import { sendVerificationEmail } from "../services/emailService.js";
+import {
+  sendVerificationCodeSMS,
+  generateVerificationCode,
+} from "../services/smsService.js";
 
 // Generate JWT Token
 const generateToken = (id) => {
@@ -211,9 +215,50 @@ export const updateProfile = async (req, res) => {
 
     // Update fields if provided
     if (name !== undefined) user.name = name;
-    if (phone !== undefined) user.phone = phone;
 
-    await user.save();
+    // Handle phone number changes
+    if (phone !== undefined && phone !== user.phone) {
+      user.phone = phone;
+
+      // If phone is being updated (not just cleared)
+      if (phone) {
+        // Invalidate previous verification
+        user.isPhoneVerified = false;
+        user.phoneVerificationCode = null;
+        user.phoneVerificationExpires = null;
+        user.phoneVerificationSentAt = null;
+
+        // Generate and send new verification code
+        const verificationCode = generateVerificationCode();
+        user.phoneVerificationCode = verificationCode;
+        user.phoneVerificationExpires = Date.now() + 10 * 60 * 1000; // 10 minutes
+        user.phoneVerificationSentAt = Date.now();
+
+        await user.save();
+
+        // Send verification SMS (don't block on this)
+        try {
+          await sendVerificationCodeSMS(phone, verificationCode);
+          console.log(
+            `[Auth Controller] Verification code sent to ${phone} for user ${user.email}`,
+          );
+        } catch (smsError) {
+          console.error(
+            `[Auth Controller] Failed to send verification SMS:`,
+            smsError,
+          );
+          // Continue - user can resend later
+        }
+      } else {
+        // Phone is being cleared
+        user.isPhoneVerified = false;
+        user.phoneVerificationCode = null;
+        user.phoneVerificationExpires = null;
+        user.phoneVerificationSentAt = null;
+      }
+    } else {
+      await user.save();
+    }
 
     // Return user without password
     const updatedUser = await User.findById(user._id).select("-password");
@@ -422,6 +467,261 @@ export const deleteAccount = async (req, res) => {
     });
   } catch (error) {
     console.error("[Delete Account] Error:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+// @desc    Send phone verification code
+// @route   POST /api/auth/send-phone-verification
+// @access  Private
+export const sendPhoneVerification = async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id);
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    // Check if user has a phone number
+    if (!user.phone) {
+      return res.status(400).json({
+        success: false,
+        message: "Please add a phone number first",
+      });
+    }
+
+    // Check if already verified
+    if (user.isPhoneVerified) {
+      return res.status(400).json({
+        success: false,
+        message: "Phone number is already verified",
+      });
+    }
+
+    // Rate limiting: Check if user sent verification code in the last minute
+    if (
+      user.phoneVerificationSentAt &&
+      Date.now() - user.phoneVerificationSentAt < 60 * 1000
+    ) {
+      const secondsRemaining = Math.ceil(
+        (60 * 1000 - (Date.now() - user.phoneVerificationSentAt)) / 1000,
+      );
+      return res.status(429).json({
+        success: false,
+        message: `Please wait ${secondsRemaining} seconds before requesting another code`,
+        secondsRemaining,
+      });
+    }
+
+    // Generate and save verification code
+    const verificationCode = generateVerificationCode();
+    user.phoneVerificationCode = verificationCode;
+    user.phoneVerificationExpires = Date.now() + 10 * 60 * 1000; // 10 minutes
+    user.phoneVerificationSentAt = Date.now();
+    await user.save();
+
+    // Send verification SMS
+    try {
+      await sendVerificationCodeSMS(user.phone, verificationCode);
+      console.log(
+        `[Auth Controller] Verification code sent to ${user.phone} for user ${user.email}`,
+      );
+
+      res.status(200).json({
+        success: true,
+        message: "Verification code sent to your phone",
+      });
+    } catch (smsError) {
+      console.error(
+        `[Auth Controller] Failed to send verification SMS:`,
+        smsError,
+      );
+      res.status(500).json({
+        success: false,
+        message: "Failed to send verification code. Please try again later.",
+      });
+    }
+  } catch (error) {
+    console.error("[Send Phone Verification] Error:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+// @desc    Verify phone code
+// @route   POST /api/auth/verify-phone
+// @access  Private
+export const verifyPhoneCode = async (req, res) => {
+  try {
+    const { code } = req.body;
+
+    if (!code) {
+      return res.status(400).json({
+        success: false,
+        message: "Verification code is required",
+      });
+    }
+
+    const user = await User.findById(req.user.id);
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    // Check if user has a phone number
+    if (!user.phone) {
+      return res.status(400).json({
+        success: false,
+        message: "No phone number to verify",
+      });
+    }
+
+    // Check if already verified
+    if (user.isPhoneVerified) {
+      return res.status(400).json({
+        success: false,
+        message: "Phone number is already verified",
+      });
+    }
+
+    // Check if verification code exists
+    if (!user.phoneVerificationCode) {
+      return res.status(400).json({
+        success: false,
+        message: "No verification code found. Please request a new code.",
+      });
+    }
+
+    // Check if code has expired
+    if (Date.now() > user.phoneVerificationExpires) {
+      return res.status(400).json({
+        success: false,
+        message: "Verification code has expired. Please request a new code.",
+      });
+    }
+
+    // Verify the code
+    if (code.trim() !== user.phoneVerificationCode) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid verification code",
+      });
+    }
+
+    // Mark phone as verified
+    user.isPhoneVerified = true;
+    user.phoneVerificationCode = null;
+    user.phoneVerificationExpires = null;
+    user.phoneVerificationSentAt = null;
+    await user.save();
+
+    console.log(
+      `[Auth Controller] Phone verified successfully for user ${user.email}`,
+    );
+
+    // Return updated user without password
+    const updatedUser = await User.findById(user._id).select("-password");
+
+    res.status(200).json({
+      success: true,
+      message: "Phone number verified successfully!",
+      data: updatedUser,
+    });
+  } catch (error) {
+    console.error("[Verify Phone Code] Error:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+// @desc    Resend phone verification code
+// @route   POST /api/auth/resend-phone-verification
+// @access  Private
+export const resendPhoneVerification = async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id);
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    // Check if user has a phone number
+    if (!user.phone) {
+      return res.status(400).json({
+        success: false,
+        message: "Please add a phone number first",
+      });
+    }
+
+    // Check if already verified
+    if (user.isPhoneVerified) {
+      return res.status(400).json({
+        success: false,
+        message: "Phone number is already verified",
+      });
+    }
+
+    // Rate limiting: Check if user sent verification code in the last minute
+    if (
+      user.phoneVerificationSentAt &&
+      Date.now() - user.phoneVerificationSentAt < 60 * 1000
+    ) {
+      const secondsRemaining = Math.ceil(
+        (60 * 1000 - (Date.now() - user.phoneVerificationSentAt)) / 1000,
+      );
+      return res.status(429).json({
+        success: false,
+        message: `Please wait ${secondsRemaining} seconds before requesting another code`,
+        secondsRemaining,
+      });
+    }
+
+    // Generate new verification code
+    const verificationCode = generateVerificationCode();
+    user.phoneVerificationCode = verificationCode;
+    user.phoneVerificationExpires = Date.now() + 10 * 60 * 1000; // 10 minutes
+    user.phoneVerificationSentAt = Date.now();
+    await user.save();
+
+    // Send verification SMS
+    try {
+      await sendVerificationCodeSMS(user.phone, verificationCode);
+      console.log(
+        `[Auth Controller] Verification code resent to ${user.phone} for user ${user.email}`,
+      );
+
+      res.status(200).json({
+        success: true,
+        message: "Verification code sent to your phone",
+      });
+    } catch (smsError) {
+      console.error(
+        `[Auth Controller] Failed to resend verification SMS:`,
+        smsError,
+      );
+      res.status(500).json({
+        success: false,
+        message: "Failed to send verification code. Please try again later.",
+      });
+    }
+  } catch (error) {
+    console.error("[Resend Phone Verification] Error:", error);
     res.status(500).json({
       success: false,
       message: error.message,

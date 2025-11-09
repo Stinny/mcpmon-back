@@ -14,6 +14,13 @@ import { initializeWebSocket, closeWebSocket } from "./services/websocket.js";
 
 dotenv.config();
 
+// Verify encryption key is loaded
+if (!process.env.ENCRYPTION_KEY) {
+  console.error("❌ ERROR: ENCRYPTION_KEY environment variable is not set!");
+  console.error("Generate one with: node -e \"console.log(require('crypto').randomBytes(32).toString('base64'))\"");
+  process.exit(1);
+}
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 

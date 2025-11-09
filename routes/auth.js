@@ -16,4 +16,17 @@ router.put("/profile", protect, authController.updateProfile);
 router.put("/alerts", protect, authController.updateAlertPreferences);
 router.delete("/account", protect, authController.deleteAccount);
 
+// Phone verification routes
+router.post(
+  "/send-phone-verification",
+  protect,
+  authController.sendPhoneVerification,
+);
+router.post("/verify-phone", protect, authController.verifyPhoneCode);
+router.post(
+  "/resend-phone-verification",
+  protect,
+  authController.resendPhoneVerification,
+);
+
 export default router;

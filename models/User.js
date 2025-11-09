@@ -48,6 +48,23 @@ const userSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    // Phone verification
+    isPhoneVerified: {
+      type: Boolean,
+      default: false,
+    },
+    phoneVerificationCode: {
+      type: String,
+      default: null,
+    },
+    phoneVerificationExpires: {
+      type: Date,
+      default: null,
+    },
+    phoneVerificationSentAt: {
+      type: Date,
+      default: null,
+    },
   },
   {
     timestamps: true,

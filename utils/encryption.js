@@ -1,140 +1,113 @@
 import crypto from "crypto";
 
-// Get encryption key from environment variable
-const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || "default-key-change-in-production-32b"; // Must be 32 bytes
-const ALGORITHM = "aes-256-cbc";
+// Algorithm configuration
+const ALGORITHM = "aes-256-gcm";
+const IV_LENGTH = 16;
+const TAG_LENGTH = 16;
+const KEY_LENGTH = 32;
 
-// Ensure key is exactly 32 bytes
+// Get encryption key from environment variable
 const getKey = () => {
-  const key = Buffer.from(ENCRYPTION_KEY);
-  if (key.length !== 32) {
-    // Pad or truncate to 32 bytes
-    const paddedKey = Buffer.alloc(32);
-    key.copy(paddedKey);
-    return paddedKey;
+  const key = process.env.ENCRYPTION_KEY;
+  if (!key) {
+    throw new Error(
+      "ENCRYPTION_KEY environment variable is not set. Generate one using: node -e \"console.log(require('crypto').randomBytes(32).toString('base64'))\""
+    );
   }
-  return key;
+
+  // Convert base64 key to buffer
+  const keyBuffer = Buffer.from(key, "base64");
+  if (keyBuffer.length !== KEY_LENGTH) {
+    throw new Error(`ENCRYPTION_KEY must be ${KEY_LENGTH} bytes when base64 decoded`);
+  }
+
+  return keyBuffer;
 };
 
 /**
- * Encrypt sensitive data
+ * Encrypt sensitive data using AES-256-GCM
  * @param {string} text - Plain text to encrypt
- * @returns {string} - Encrypted text in format: iv:encryptedData
+ * @returns {string} - Encrypted text in format: iv:tag:encryptedData (hex)
  */
 export function encrypt(text) {
   if (!text) return null;
 
-  const iv = crypto.randomBytes(16);
-  const cipher = crypto.createCipheriv(ALGORITHM, getKey(), iv);
+  try {
+    const iv = crypto.randomBytes(IV_LENGTH);
+    const cipher = crypto.createCipheriv(ALGORITHM, getKey(), iv);
 
-  let encrypted = cipher.update(text, "utf8", "hex");
-  encrypted += cipher.final("hex");
+    let encrypted = cipher.update(text, "utf8", "hex");
+    encrypted += cipher.final("hex");
 
-  // Return IV and encrypted data separated by colon
-  return `${iv.toString("hex")}:${encrypted}`;
+    // Get authentication tag
+    const tag = cipher.getAuthTag();
+
+    // Return IV, tag, and encrypted data separated by colons
+    return `${iv.toString("hex")}:${tag.toString("hex")}:${encrypted}`;
+  } catch (error) {
+    console.error("Encryption error:", error.message);
+    throw new Error("Failed to encrypt data");
+  }
 }
 
 /**
- * Decrypt sensitive data
- * @param {string} encryptedText - Encrypted text in format: iv:encryptedData
+ * Decrypt sensitive data using AES-256-GCM
+ * @param {string} encryptedText - Encrypted text in format: iv:tag:encryptedData
  * @returns {string} - Decrypted plain text
  */
 export function decrypt(encryptedText) {
   if (!encryptedText) return null;
 
-  const [ivHex, encrypted] = encryptedText.split(":");
-  if (!ivHex || !encrypted) {
-    throw new Error("Invalid encrypted text format");
-  }
-
-  const iv = Buffer.from(ivHex, "hex");
-  const decipher = crypto.createDecipheriv(ALGORITHM, getKey(), iv);
-
-  let decrypted = decipher.update(encrypted, "hex", "utf8");
-  decrypted += decipher.final("utf8");
-
-  return decrypted;
-}
-
-/**
- * Encrypt auth configuration object
- * @param {string} authType - Type of authentication
- * @param {Object} authConfig - Authentication configuration
- * @returns {Object} - Encrypted auth configuration
- */
-export function encryptAuthConfig(authType, authConfig) {
-  if (!authConfig || authType === "none") {
-    return null;
-  }
-
-  const encrypted = {};
-
-  switch (authType) {
-    case "api-key":
-      encrypted.headerName = authConfig.headerName || "X-API-Key";
-      encrypted.apiKey = encrypt(authConfig.apiKey);
-      break;
-
-    case "bearer-token":
-      encrypted.token = encrypt(authConfig.token);
-      break;
-
-    case "custom-headers":
-      encrypted.headers = {};
-      if (authConfig.headers) {
-        for (const [key, value] of Object.entries(authConfig.headers)) {
-          encrypted.headers[key] = encrypt(value);
-        }
-      }
-      break;
-
-    default:
-      return null;
-  }
-
-  return encrypted;
-}
-
-/**
- * Decrypt auth configuration object
- * @param {string} authType - Type of authentication
- * @param {Object} encryptedConfig - Encrypted authentication configuration
- * @returns {Object} - Decrypted auth configuration
- */
-export function decryptAuthConfig(authType, encryptedConfig) {
-  if (!encryptedConfig || authType === "none") {
-    return null;
-  }
-
-  const decrypted = {};
-
   try {
-    switch (authType) {
-      case "api-key":
-        decrypted.headerName = encryptedConfig.headerName || "X-API-Key";
-        decrypted.apiKey = decrypt(encryptedConfig.apiKey);
-        break;
-
-      case "bearer-token":
-        decrypted.token = decrypt(encryptedConfig.token);
-        break;
-
-      case "custom-headers":
-        decrypted.headers = {};
-        if (encryptedConfig.headers) {
-          for (const [key, value] of Object.entries(encryptedConfig.headers)) {
-            decrypted.headers[key] = decrypt(value);
-          }
-        }
-        break;
-
-      default:
-        return null;
+    const parts = encryptedText.split(":");
+    if (parts.length !== 3) {
+      throw new Error("Invalid encrypted text format");
     }
+
+    const [ivHex, tagHex, encrypted] = parts;
+    const iv = Buffer.from(ivHex, "hex");
+    const tag = Buffer.from(tagHex, "hex");
+
+    const decipher = crypto.createDecipheriv(ALGORITHM, getKey(), iv);
+    decipher.setAuthTag(tag);
+
+    let decrypted = decipher.update(encrypted, "hex", "utf8");
+    decrypted += decipher.final("utf8");
 
     return decrypted;
   } catch (error) {
-    console.error("Error decrypting auth config:", error.message);
+    console.error("Decryption error:", error.message);
+    throw new Error("Failed to decrypt data");
+  }
+}
+
+/**
+ * Encrypt auth token
+ * @param {string} authType - Type of authentication (none, bearer, apikey)
+ * @param {string} token - Authentication token
+ * @returns {string} - Encrypted token
+ */
+export function encryptAuthToken(authType, token) {
+  if (!token || authType === "none") {
+    return null;
+  }
+  return encrypt(token);
+}
+
+/**
+ * Decrypt auth token
+ * @param {string} authType - Type of authentication (none, bearer, apikey)
+ * @param {string} encryptedToken - Encrypted token
+ * @returns {string} - Decrypted token
+ */
+export function decryptAuthToken(authType, encryptedToken) {
+  if (!encryptedToken || authType === "none") {
+    return null;
+  }
+  try {
+    return decrypt(encryptedToken);
+  } catch (error) {
+    console.error("Error decrypting auth token:", error.message);
     return null;
   }
 }

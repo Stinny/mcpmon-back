@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { decryptAuthToken } from "../utils/encryption.js";
 
 const monitorSchema = new mongoose.Schema(
   {
@@ -68,6 +69,59 @@ const monitorSchema = new mongoose.Schema(
       }),
     },
 
+    // Authentication configuration
+    authType: {
+      type: String,
+      enum: ["none", "bearer", "apikey"],
+      default: "none",
+    },
+    authToken: {
+      type: String, // Stored encrypted
+      default: null,
+      select: false, // Don't return in queries by default
+    },
+    authHeaderName: {
+      type: String,
+      default: "Authorization", // For API key: can be "X-API-Key" etc.
+    },
+
+    // MCP session management
+    sessionId: {
+      type: String,
+      default: null,
+    },
+    serverCapabilities: {
+      type: Object,
+      default: null,
+    },
+    protocolVersion: {
+      type: String,
+      default: "2024-11-05",
+    },
+
+    // Tool discovery
+    tools: [{
+      name: {
+        type: String,
+        required: true,
+      },
+      description: {
+        type: String,
+        default: "",
+      },
+      inputSchema: {
+        type: mongoose.Schema.Types.Mixed,
+        default: null,
+      },
+    }],
+    lastToolsSync: {
+      type: Date,
+      default: null,
+    },
+    toolsSyncEnabled: {
+      type: Boolean,
+      default: true,
+    },
 
     // Monitoring data
     lastCheckedAt: {
@@ -215,6 +269,14 @@ monitorSchema.methods.updateStatus = async function (
 
   this.uptimePercentage = this.calculateUptime();
   await this.save();
+};
+
+// Method to get decrypted auth token
+monitorSchema.methods.getDecryptedAuthToken = function () {
+  if (!this.authToken || this.authType === "none") {
+    return null;
+  }
+  return decryptAuthToken(this.authType, this.authToken);
 };
 
 const Monitor = mongoose.model("Monitor", monitorSchema);
