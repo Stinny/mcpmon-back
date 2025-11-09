@@ -15,7 +15,6 @@ import {
 export const MonitorRecoveryEmail = ({
   monitorName,
   monitorUrl,
-  downtimeDuration,
   recoveredAt,
   dashboardUrl,
 }) =>
@@ -50,39 +49,35 @@ export const MonitorRecoveryEmail = ({
 
         React.createElement(
           Section,
-          { style: detailsBox },
-          React.createElement(Text, { style: label }, "Monitor name"),
-          React.createElement(Text, { style: value }, monitorName),
-
-          React.createElement(Text, { style: label }, "Server URL"),
+          { style: detailsContainer },
           React.createElement(
-            Text,
-            { style: { ...value, wordBreak: "break-all" } },
-            monitorUrl,
-          ),
+            Section,
+            { style: detailsBox },
+            React.createElement(Text, { style: label }, "Monitor name"),
+            React.createElement(Text, { style: value }, monitorName),
 
-          React.createElement(Text, { style: label }, "Status"),
-          React.createElement(
-            Text,
-            { style: { ...value, ...statusOnline } },
-            "Online",
-          ),
-
-          downtimeDuration &&
+            React.createElement(Text, { style: label }, "Server URL"),
             React.createElement(
-              React.Fragment,
-              null,
-              React.createElement(Text, { style: label }, "Total downtime"),
-              React.createElement(Text, { style: value }, downtimeDuration),
+              Text,
+              { style: { ...value, wordBreak: "break-all" } },
+              monitorUrl,
             ),
 
-          recoveredAt &&
+            React.createElement(Text, { style: label }, "Status"),
             React.createElement(
-              React.Fragment,
-              null,
-              React.createElement(Text, { style: label }, "Recovered at"),
-              React.createElement(Text, { style: value }, recoveredAt),
+              Text,
+              { style: { ...value, ...statusOnline } },
+              "Online",
             ),
+
+            recoveredAt &&
+              React.createElement(
+                React.Fragment,
+                null,
+                React.createElement(Text, { style: label }, "Recovered at"),
+                React.createElement(Text, { style: value }, recoveredAt),
+              ),
+          ),
         ),
 
         // Call to action
@@ -141,8 +136,13 @@ const text = {
   color: "#6b7280",
   fontSize: "15px",
   lineHeight: "1.6",
+  margin: "32px 0 0 0",
   padding: "0 60px",
-  marginTop: "32px",
+};
+
+const detailsContainer = {
+  padding: "0 60px",
+  margin: "40px 0 0 0",
 };
 
 const detailsBox = {
@@ -150,7 +150,7 @@ const detailsBox = {
   border: "1px solid #e5e7eb",
   borderRadius: "8px",
   padding: "32px 40px",
-  margin: "40px 60px",
+  margin: "0",
 };
 
 const label = {
@@ -173,8 +173,9 @@ const statusOnline = {
 };
 
 const buttonContainer = {
+  padding: "0 60px",
+  margin: "40px 0",
   textAlign: "left",
-  margin: "40px 60px",
 };
 
 const button = {
@@ -192,15 +193,15 @@ const button = {
 
 const hr = {
   borderColor: "#e5e7eb",
-  margin: "0",
+  margin: "40px 0 0 0",
 };
 
 const footer = {
   color: "#9ca3af",
   fontSize: "13px",
   lineHeight: "1.6",
+  margin: "0",
   padding: "40px 60px",
-  textAlign: "left",
 };
 
 export default MonitorRecoveryEmail;

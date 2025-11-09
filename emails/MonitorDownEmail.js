@@ -60,47 +60,51 @@ export const MonitorDownEmail = ({
 
         React.createElement(
           Section,
-          { style: detailsBox },
-          React.createElement(Text, { style: label }, "Monitor name"),
-          React.createElement(Text, { style: value }, monitorName),
-
-          React.createElement(Text, { style: label }, "Server URL"),
+          { style: detailsContainer },
           React.createElement(
-            Text,
-            { style: { ...value, wordBreak: "break-all" } },
-            monitorUrl,
+            Section,
+            { style: detailsBox },
+            React.createElement(Text, { style: label }, "Monitor name"),
+            React.createElement(Text, { style: value }, monitorName),
+
+            React.createElement(Text, { style: label }, "Server URL"),
+            React.createElement(
+              Text,
+              { style: { ...value, wordBreak: "break-all" } },
+              monitorUrl,
+            ),
+
+            React.createElement(Text, { style: label }, "Status"),
+            React.createElement(
+              Text,
+              { style: { ...value, ...statusOffline } },
+              "Offline",
+            ),
+
+            errorMessage &&
+              React.createElement(
+                React.Fragment,
+                null,
+                React.createElement(Text, { style: label }, "Error details"),
+                React.createElement(Text, { style: errorText }, errorMessage),
+              ),
+
+            lastSeenOnline &&
+              React.createElement(
+                React.Fragment,
+                null,
+                React.createElement(Text, { style: label }, "Last seen online"),
+                React.createElement(Text, { style: value }, lastSeenOnline),
+              ),
+
+            downtimeDuration &&
+              React.createElement(
+                React.Fragment,
+                null,
+                React.createElement(Text, { style: label }, "Downtime duration"),
+                React.createElement(Text, { style: value }, downtimeDuration),
+              ),
           ),
-
-          React.createElement(Text, { style: label }, "Status"),
-          React.createElement(
-            Text,
-            { style: { ...value, ...statusOffline } },
-            "Offline",
-          ),
-
-          errorMessage &&
-            React.createElement(
-              React.Fragment,
-              null,
-              React.createElement(Text, { style: label }, "Error details"),
-              React.createElement(Text, { style: errorText }, errorMessage),
-            ),
-
-          lastSeenOnline &&
-            React.createElement(
-              React.Fragment,
-              null,
-              React.createElement(Text, { style: label }, "Last seen online"),
-              React.createElement(Text, { style: value }, lastSeenOnline),
-            ),
-
-          downtimeDuration &&
-            React.createElement(
-              React.Fragment,
-              null,
-              React.createElement(Text, { style: label }, "Downtime duration"),
-              React.createElement(Text, { style: value }, downtimeDuration),
-            ),
         ),
 
         // Call to action
@@ -159,8 +163,13 @@ const text = {
   color: "#6b7280",
   fontSize: "15px",
   lineHeight: "1.6",
+  margin: "32px 0 0 0",
   padding: "0 60px",
-  marginTop: "32px",
+};
+
+const detailsContainer = {
+  padding: "0 60px",
+  margin: "40px 0 0 0",
 };
 
 const detailsBox = {
@@ -168,7 +177,7 @@ const detailsBox = {
   border: "1px solid #e5e7eb",
   borderRadius: "8px",
   padding: "32px 40px",
-  margin: "40px 60px",
+  margin: "0",
 };
 
 const label = {
@@ -203,8 +212,9 @@ const errorText = {
 };
 
 const buttonContainer = {
+  padding: "0 60px",
+  margin: "40px 0",
   textAlign: "left",
-  margin: "40px 60px",
 };
 
 const button = {
@@ -222,15 +232,15 @@ const button = {
 
 const hr = {
   borderColor: "#e5e7eb",
-  margin: "0",
+  margin: "40px 0 0 0",
 };
 
 const footer = {
   color: "#9ca3af",
   fontSize: "13px",
   lineHeight: "1.6",
+  margin: "0",
   padding: "40px 60px",
-  textAlign: "left",
 };
 
 export default MonitorDownEmail;

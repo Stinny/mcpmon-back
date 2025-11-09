@@ -4,13 +4,15 @@ import User from "../models/User.js";
 import { sendUserSignupAlert } from "../services/slackService.js";
 
 export const configurePassport = () => {
-  passport.use(
-    new GitHubStrategy(
+  // Create a custom GitHub strategy that adds allow_signup param
+  const strategy = new GitHubStrategy(
       {
         clientID: process.env.GITHUB_CLIENT_ID,
         clientSecret: process.env.GITHUB_CLIENT_SECRET,
         callbackURL: process.env.GITHUB_CALLBACK_URL,
         scope: ["user:email"],
+        // Allow users to sign up during OAuth flow
+        authorizationParams: { allow_signup: 'true' }
       },
       async (accessToken, refreshToken, profile, done) => {
         try {
@@ -84,8 +86,9 @@ export const configurePassport = () => {
           return done(error, null);
         }
       },
-    ),
-  );
+    );
+
+  passport.use(strategy);
 };
 
 export default passport;

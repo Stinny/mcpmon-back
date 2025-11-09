@@ -1,6 +1,7 @@
 import { Resend } from "resend";
 import { render } from "@react-email/render";
 import VerificationEmail from "../emails/VerificationEmail.js";
+import PasswordResetEmail from "../emails/PasswordResetEmail.js";
 import MonitorDownEmail from "../emails/MonitorDownEmail.js";
 import MonitorRecoveryEmail from "../emails/MonitorRecoveryEmail.js";
 
@@ -86,6 +87,62 @@ export async function sendWelcomeEmail(user) {
 }
 
 /**
+ * Send password reset email to user
+ * @param {Object} user - User object with email and name
+ * @param {string} resetToken - Token for password reset
+ * @returns {Promise<Object>} - Resend API response
+ */
+export async function sendPasswordResetEmail(user, resetToken) {
+  try {
+    console.log(
+      `[Email Service] Starting password reset email send process for ${user.email}`,
+    );
+
+    const frontendUrl = process.env.FRONTEND_URL || "http://localhost:5173";
+    const resetUrl = `${frontendUrl}/reset-password/${resetToken}`;
+
+    console.log(`[Email Service] Reset URL: ${resetUrl}`);
+
+    // Render React email template to HTML
+    console.log(`[Email Service] Rendering password reset email template...`);
+    const emailComponent = PasswordResetEmail({
+      userName: user.name,
+      resetUrl,
+    });
+
+    const htmlString = await render(emailComponent);
+    console.log(`[Email Service] Email template rendered successfully`);
+
+    // Send email using Resend
+    console.log(`[Email Service] Initializing Resend client...`);
+    const client = getResendClient();
+
+    const fromEmail = process.env.RESEND_FROM_EMAIL || "onboarding@resend.dev";
+    const emailData = {
+      from: `MCPMon <${fromEmail}>`,
+      to: user.email,
+      subject: "Reset your password - MCPMon",
+      html: htmlString,
+    };
+
+    console.log(
+      `[Email Service] Sending password reset email from ${emailData.from} to ${emailData.to}`,
+    );
+    const response = await client.emails.send(emailData);
+
+    console.log(`✓ Password reset email sent to ${user.email}`, response);
+    return response;
+  } catch (error) {
+    console.error(
+      `✗ Failed to send password reset email to ${user.email}:`,
+      error,
+    );
+    console.error(`Error details:`, JSON.stringify(error, null, 2));
+    throw new Error("Failed to send password reset email");
+  }
+}
+
+/**
  * Helper function to format duration in human-readable format
  * @param {number} milliseconds - Duration in milliseconds
  * @returns {string} - Formatted duration string
@@ -168,7 +225,7 @@ export async function sendMonitorDownAlert(monitor, user, isReminder = false) {
     }
 
     const frontendUrl = process.env.FRONTEND_URL || "http://localhost:5173";
-    const dashboardUrl = `${frontendUrl}/monitors/${monitor._id}`;
+    const dashboardUrl = `${frontendUrl}/monitors/`;
 
     // Format downtime duration if available
     let downtimeDuration = null;
@@ -210,8 +267,8 @@ export async function sendMonitorDownAlert(monitor, user, isReminder = false) {
       from: `MCPMon <${fromEmail}>`,
       to: monitor.alertEmail || user.email,
       subject: isReminder
-        ? `🔴 Reminder: ${monitor.name} Still Down`
-        : `🔴 Alert: ${monitor.name} is Down`,
+        ? `Reminder: ${monitor.name} Still Down`
+        : `Alert: ${monitor.name} is Down`,
       html: htmlString,
     };
 
@@ -273,10 +330,7 @@ export async function sendMonitorRecoveryAlert(
     }
 
     const frontendUrl = process.env.FRONTEND_URL || "http://localhost:5173";
-    const dashboardUrl = `${frontendUrl}/monitors/${monitor._id}`;
-
-    // Format downtime duration
-    const formattedDowntime = formatDuration(downtimeDuration);
+    const dashboardUrl = `${frontendUrl}/monitors/`;
 
     // Format recovered time
     const recoveredAt = new Date().toLocaleString("en-US", {
@@ -292,7 +346,6 @@ export async function sendMonitorRecoveryAlert(
     const emailComponent = MonitorRecoveryEmail({
       monitorName: monitor.name,
       monitorUrl: monitor.url,
-      downtimeDuration: formattedDowntime,
       recoveredAt,
       dashboardUrl,
     });
@@ -305,7 +358,7 @@ export async function sendMonitorRecoveryAlert(
     const emailData = {
       from: `MCPMon <${fromEmail}>`,
       to: monitor.alertEmail || user.email,
-      subject: `✅ Recovery: ${monitor.name} is Back Online`,
+      subject: `Recovery: ${monitor.name} is Back Online`,
       html: htmlString,
     };
 

@@ -4,27 +4,19 @@
  */
 
 /**
- * Send a message to Slack via webhook with formatted blocks
+ * Send a message to Slack via webhook
  * @param {string} message - Message text to send
- * @param {Array} blocks - Slack block kit blocks for rich formatting
  * @returns {Promise<Object>} - Fetch response
  */
-async function sendSlackMessage(message, blocks = null) {
+async function sendSlackMessage(message) {
   try {
     const webhookUrl = process.env.SLACK_WEBHOOK_URL;
 
     if (!webhookUrl) {
-      console.warn("[Slack Service] SLACK_WEBHOOK_URL not configured, skipping notification");
+      console.warn(
+        "[Slack Service] SLACK_WEBHOOK_URL not configured, skipping notification",
+      );
       return null;
-    }
-
-    const payload = {
-      text: message,
-    };
-
-    // Add blocks for rich formatting if provided
-    if (blocks) {
-      payload.blocks = blocks;
     }
 
     const response = await fetch(webhookUrl, {
@@ -32,11 +24,15 @@ async function sendSlackMessage(message, blocks = null) {
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({
+        text: message,
+      }),
     });
 
     if (!response.ok) {
-      throw new Error(`Slack webhook returned ${response.status}: ${response.statusText}`);
+      throw new Error(
+        `Slack webhook returned ${response.status}: ${response.statusText}`,
+      );
     }
 
     console.log(`✓ Slack notification sent: ${message.substring(0, 50)}...`);
@@ -54,29 +50,11 @@ async function sendSlackMessage(message, blocks = null) {
  * @returns {Promise<Object>} - Fetch response
  */
 export async function sendUserSignupAlert(user) {
-  const message = `🎉 New user signed up: ${user.email}`;
-  const blocks = [
-    {
-      type: "header",
-      text: {
-        type: "plain_text",
-        text: "🎉 New User Signup",
-      },
-    },
-    {
-      type: "section",
-      fields: [
-        {
-          type: "mrkdwn",
-          text: `*Email:*\n${user.email}`,
-        },
-      ],
-    },
-    {
-      type: "divider",
-    },
-  ];
-  return sendSlackMessage(message, blocks);
+  const message = `
+🎉 *New User Signup*
+Email: ${user.email}
+`;
+  return sendSlackMessage(message);
 }
 
 /**
@@ -86,41 +64,18 @@ export async function sendUserSignupAlert(user) {
  * @param {boolean} allowResponse - Whether user allows response
  * @returns {Promise<Object>} - Fetch response
  */
-export async function sendFeedbackAlert(userId, feedbackContent, allowResponse) {
-  const message = `💬 New feedback submitted from ${userId}`;
-  const blocks = [
-    {
-      type: "header",
-      text: {
-        type: "plain_text",
-        text: "💬 New Feedback Submitted",
-      },
-    },
-    {
-      type: "section",
-      fields: [
-        {
-          type: "mrkdwn",
-          text: `*User ID:*\n${userId}`,
-        },
-        {
-          type: "mrkdwn",
-          text: `*Allow Response:*\n${allowResponse ? 'Yes ✓' : 'No ✗'}`,
-        },
-      ],
-    },
-    {
-      type: "section",
-      text: {
-        type: "mrkdwn",
-        text: `*Feedback:*\n${feedbackContent}`,
-      },
-    },
-    {
-      type: "divider",
-    },
-  ];
-  return sendSlackMessage(message, blocks);
+export async function sendFeedbackAlert(
+  userId,
+  feedbackContent,
+  allowResponse,
+) {
+  const message = `
+💬 *New Feedback Submitted*
+User ID: ${userId}
+Allow Response: ${allowResponse ? "Yes" : "No"}
+Feedback: ${feedbackContent}
+`;
+  return sendSlackMessage(message);
 }
 
 /**
@@ -130,34 +85,10 @@ export async function sendFeedbackAlert(userId, feedbackContent, allowResponse) 
  * @returns {Promise<Object>} - Fetch response
  */
 export async function sendContactAlert(email, messageContent) {
-  const message = `📧 New contact message from ${email}`;
-  const blocks = [
-    {
-      type: "header",
-      text: {
-        type: "plain_text",
-        text: "📧 New Contact Message",
-      },
-    },
-    {
-      type: "section",
-      fields: [
-        {
-          type: "mrkdwn",
-          text: `*Email:*\n${email}`,
-        },
-      ],
-    },
-    {
-      type: "section",
-      text: {
-        type: "mrkdwn",
-        text: `*Message:*\n${messageContent}`,
-      },
-    },
-    {
-      type: "divider",
-    },
-  ];
-  return sendSlackMessage(message, blocks);
+  const message = `
+📧 *New Contact Message*
+Email: ${email}
+Message: ${messageContent}
+`;
+  return sendSlackMessage(message);
 }

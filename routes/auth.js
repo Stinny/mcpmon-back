@@ -11,10 +11,17 @@ router.post("/login", authController.login);
 router.get("/verify-email/:token", authController.verifyEmail);
 router.post("/resend-verification", authController.resendVerification);
 
+// Password reset routes (public)
+router.post("/forgot-password", authController.forgotPassword);
+router.post("/reset-password/:token", authController.resetPassword);
+
 // GitHub OAuth routes
 router.get(
   "/github",
-  passport.authenticate("github", { scope: ["user:email"], session: false }),
+  passport.authenticate("github", {
+    scope: ["user:email"],
+    session: false
+  })
 );
 router.get("/github/callback", authController.githubCallback);
 
@@ -22,6 +29,7 @@ router.get("/github/callback", authController.githubCallback);
 router.get("/me", protect, authController.getMe);
 router.put("/profile", protect, authController.updateProfile);
 router.put("/alerts", protect, authController.updateAlertPreferences);
+router.put("/change-password", protect, authController.changePassword);
 router.delete("/account", protect, authController.deleteAccount);
 
 // Phone verification routes

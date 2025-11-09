@@ -2,7 +2,10 @@ import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import passport from "passport";
 import User from "../models/User.js";
-import { sendVerificationEmail } from "../services/emailService.js";
+import {
+  sendVerificationEmail,
+  sendPasswordResetEmail,
+} from "../services/emailService.js";
 import {
   sendVerificationCodeSMS,
   generateVerificationCode,
@@ -805,4 +808,213 @@ export const githubCallback = (req, res, next) => {
       );
     }
   })(req, res, next);
+};
+
+// @desc    Forgot password - send reset email
+// @route   POST /api/auth/forgot-password
+// @access  Public
+export const forgotPassword = async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        message: "Please provide your email address",
+      });
+    }
+
+    // Find user by email
+    const user = await User.findOne({ email: email.toLowerCase() });
+
+    // Don't reveal if user exists or not for security
+    if (!user) {
+      return res.status(200).json({
+        success: true,
+        message: "If an account exists with this email, you will receive a password reset link.",
+      });
+    }
+
+    // Check if this is an OAuth account
+    if (user.authProvider !== "local" || !user.password) {
+      return res.status(400).json({
+        success: false,
+        message: `This account uses ${user.authProvider === "github" ? "GitHub" : "OAuth"} authentication. Please sign in with ${user.authProvider === "github" ? "GitHub" : "your OAuth provider"}.`,
+      });
+    }
+
+    // Generate reset token
+    const resetToken = crypto.randomBytes(32).toString("hex");
+    const hashedToken = crypto
+      .createHash("sha256")
+      .update(resetToken)
+      .digest("hex");
+
+    // Save hashed token and expiry (1 hour)
+    user.passwordResetToken = hashedToken;
+    user.passwordResetExpires = Date.now() + 60 * 60 * 1000; // 1 hour
+    await user.save();
+
+    // Send reset email
+    try {
+      await sendPasswordResetEmail(user, resetToken);
+      console.log(`[Forgot Password] Reset email sent to ${user.email}`);
+
+      res.status(200).json({
+        success: true,
+        message: "Password reset link has been sent to your email.",
+      });
+    } catch (emailError) {
+      // Clear reset token if email fails
+      user.passwordResetToken = null;
+      user.passwordResetExpires = null;
+      await user.save();
+
+      console.error("[Forgot Password] Email sending failed:", emailError);
+      res.status(500).json({
+        success: false,
+        message: "Failed to send password reset email. Please try again later.",
+      });
+    }
+  } catch (error) {
+    console.error("[Forgot Password] Error:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+// @desc    Reset password with token
+// @route   POST /api/auth/reset-password/:token
+// @access  Public
+export const resetPassword = async (req, res) => {
+  try {
+    const { token } = req.params;
+    const { password } = req.body;
+
+    if (!token) {
+      return res.status(400).json({
+        success: false,
+        message: "Reset token is required",
+      });
+    }
+
+    if (!password) {
+      return res.status(400).json({
+        success: false,
+        message: "Please provide a new password",
+      });
+    }
+
+    if (password.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: "Password must be at least 6 characters long",
+      });
+    }
+
+    // Hash the token from URL to compare with stored hash
+    const hashedToken = crypto.createHash("sha256").update(token).digest("hex");
+
+    // Find user with matching token and unexpired reset
+    const user = await User.findOne({
+      passwordResetToken: hashedToken,
+      passwordResetExpires: { $gt: Date.now() },
+    });
+
+    if (!user) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid or expired reset token",
+      });
+    }
+
+    // Update password (will be hashed by pre-save hook)
+    user.password = password;
+    user.passwordResetToken = null;
+    user.passwordResetExpires = null;
+    await user.save();
+
+    console.log(`[Reset Password] Password reset successful for ${user.email}`);
+
+    res.status(200).json({
+      success: true,
+      message: "Password has been reset successfully. You can now log in with your new password.",
+    });
+  } catch (error) {
+    console.error("[Reset Password] Error:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+// @desc    Change password (when logged in)
+// @route   PUT /api/auth/change-password
+// @access  Private
+export const changePassword = async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({
+        success: false,
+        message: "Please provide both current and new password",
+      });
+    }
+
+    if (newPassword.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: "New password must be at least 6 characters long",
+      });
+    }
+
+    // Get user with password field
+    const user = await User.findById(req.user.id);
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    // Check if this is an OAuth account
+    if (user.authProvider !== "local" || !user.password) {
+      return res.status(400).json({
+        success: false,
+        message: `This account uses ${user.authProvider === "github" ? "GitHub" : "OAuth"} authentication and doesn't have a password.`,
+      });
+    }
+
+    // Verify current password
+    const isCurrentPasswordValid = await user.comparePassword(currentPassword);
+
+    if (!isCurrentPasswordValid) {
+      return res.status(401).json({
+        success: false,
+        message: "Current password is incorrect",
+      });
+    }
+
+    // Update to new password (will be hashed by pre-save hook)
+    user.password = newPassword;
+    await user.save();
+
+    console.log(`[Change Password] Password changed successfully for ${user.email}`);
+
+    res.status(200).json({
+      success: true,
+      message: "Password has been changed successfully",
+    });
+  } catch (error) {
+    console.error("[Change Password] Error:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
 };
