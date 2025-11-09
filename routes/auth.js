@@ -1,4 +1,5 @@
 import express from "express";
+import passport from "passport";
 import * as authController from "../controllers/authController.js";
 import { protect } from "../middleware/auth.js";
 
@@ -9,6 +10,13 @@ router.post("/signup", authController.signup);
 router.post("/login", authController.login);
 router.get("/verify-email/:token", authController.verifyEmail);
 router.post("/resend-verification", authController.resendVerification);
+
+// GitHub OAuth routes
+router.get(
+  "/github",
+  passport.authenticate("github", { scope: ["user:email"], session: false }),
+);
+router.get("/github/callback", authController.githubCallback);
 
 // Protected routes
 router.get("/me", protect, authController.getMe);

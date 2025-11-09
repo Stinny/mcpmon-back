@@ -1,11 +1,13 @@
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
+import passport from "passport";
 import User from "../models/User.js";
 import { sendVerificationEmail } from "../services/emailService.js";
 import {
   sendVerificationCodeSMS,
   generateVerificationCode,
 } from "../services/smsService.js";
+import { sendUserSignupAlert } from "../services/slackService.js";
 
 // Generate JWT Token
 const generateToken = (id) => {
@@ -33,6 +35,15 @@ export const signup = async (req, res) => {
     const userExists = await User.findOne({ email });
 
     if (userExists) {
+      // Provide specific message if account was created via OAuth
+      if (userExists.authProvider !== "local") {
+        return res.status(400).json({
+          success: false,
+          message: `An account with this email already exists. Please sign in with ${userExists.authProvider === "github" ? "GitHub" : "your OAuth provider"}.`,
+          code: "OAUTH_ACCOUNT_EXISTS",
+        });
+      }
+
       return res.status(400).json({
         success: false,
         message: "User already exists with this email",
@@ -57,6 +68,12 @@ export const signup = async (req, res) => {
 
     if (user) {
       console.log(`[Auth Controller] User created successfully: ${user.email}`);
+
+      // Send Slack notification (fire and forget)
+      sendUserSignupAlert(user).catch((err) => {
+        console.error("[Auth Controller] Slack notification failed:", err);
+      });
+
       console.log(`[Auth Controller] Attempting to send verification email...`);
 
       // Send verification email
@@ -120,6 +137,15 @@ export const login = async (req, res) => {
       return res.status(401).json({
         success: false,
         message: "Invalid email or password",
+      });
+    }
+
+    // Check if user signed up with OAuth (no password set)
+    if (!user.password || user.authProvider !== "local") {
+      return res.status(400).json({
+        success: false,
+        message: `This account was created using ${user.authProvider === "github" ? "GitHub" : "OAuth"}. Please sign in with ${user.authProvider === "github" ? "GitHub" : "your OAuth provider"} instead.`,
+        code: "OAUTH_ACCOUNT",
       });
     }
 
@@ -727,4 +753,56 @@ export const resendPhoneVerification = async (req, res) => {
       message: error.message,
     });
   }
+};
+
+// @desc    GitHub OAuth callback
+// @route   GET /api/auth/github/callback
+// @access  Public
+export const githubCallback = (req, res, next) => {
+  const frontendUrl = process.env.FRONTEND_URL || "http://localhost:5173";
+
+  // Use custom callback to handle errors manually
+  passport.authenticate("github", { session: false }, async (err, user, info) => {
+    try {
+      // Handle authentication errors
+      if (err) {
+        console.error("[GitHub Callback] Authentication error:", err.message);
+        return res.redirect(
+          `${frontendUrl}/auth/callback?error=${encodeURIComponent(err.message)}`,
+        );
+      }
+
+      // Handle case where no user was returned
+      if (!user) {
+        return res.redirect(
+          `${frontendUrl}/auth/callback?error=Authentication failed`,
+        );
+      }
+
+      // Generate JWT token
+      const token = generateToken(user._id);
+
+      // Get user without password
+      const userWithoutPassword = await User.findById(user._id).select(
+        "-password",
+      );
+      const userObj = userWithoutPassword.toObject();
+
+      // Redirect to frontend with token and user data
+      const userData = encodeURIComponent(
+        JSON.stringify({
+          ...userObj,
+          id: userObj._id,
+          token,
+        }),
+      );
+
+      res.redirect(`${frontendUrl}/auth/callback?success=true&data=${userData}`);
+    } catch (error) {
+      console.error("[GitHub Callback] Error:", error);
+      res.redirect(
+        `${frontendUrl}/auth/callback?error=${encodeURIComponent(error.message)}`,
+      );
+    }
+  })(req, res, next);
 };

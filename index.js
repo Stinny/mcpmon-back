@@ -2,7 +2,9 @@ import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 import { createServer } from "http";
+import passport from "passport";
 import connectDB from "./config/db.js";
+import { configurePassport } from "./config/passport.js";
 import indexRoutes from "./routes/index.js";
 import authRoutes from "./routes/auth.js";
 import monitorRoutes from "./routes/monitors.js";
@@ -26,6 +28,10 @@ const PORT = process.env.PORT || 3000;
 
 app.use(cors());
 app.use(express.json());
+
+// Initialize Passport
+configurePassport();
+app.use(passport.initialize());
 
 app.use("/api/auth", authRoutes);
 app.use("/api/monitors", monitorRoutes);

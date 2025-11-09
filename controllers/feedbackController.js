@@ -1,4 +1,5 @@
 import Feedback from "../models/Feedback.js";
+import { sendFeedbackAlert } from "../services/slackService.js";
 
 // @desc    Submit feedback
 // @route   POST /api/feedback
@@ -20,6 +21,11 @@ export const submitFeedback = async (req, res) => {
       user: req.user.id,
       feedback,
       allowResponse: allowResponse || false,
+    });
+
+    // Send Slack notification (fire and forget)
+    sendFeedbackAlert(req.user.id, feedback, allowResponse || false).catch((err) => {
+      console.error("[Feedback Controller] Slack notification failed:", err);
     });
 
     res.status(201).json({

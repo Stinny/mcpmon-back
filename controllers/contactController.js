@@ -1,4 +1,5 @@
 import Contact from "../models/Contact.js";
+import { sendContactAlert } from "../services/slackService.js";
 
 // @desc    Submit contact message
 // @route   POST /api/contact
@@ -19,6 +20,11 @@ export const submitContact = async (req, res) => {
     const contact = await Contact.create({
       email,
       message,
+    });
+
+    // Send Slack notification (fire and forget)
+    sendContactAlert(email, message).catch((err) => {
+      console.error("[Contact Controller] Slack notification failed:", err);
     });
 
     res.status(201).json({

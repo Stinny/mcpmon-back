@@ -18,13 +18,23 @@ const userSchema = new mongoose.Schema(
     },
     password: {
       type: String,
-      required: [true, "Password is required"],
       minlength: [6, "Password must be at least 6 characters long"],
     },
     phone: {
       type: String,
       trim: true,
       match: [/^\+?[\d\s\-\(\)]+$/, "Please provide a valid phone number"],
+    },
+    // OAuth fields
+    githubId: {
+      type: String,
+      unique: true,
+      sparse: true, // Allows null values while maintaining uniqueness
+    },
+    authProvider: {
+      type: String,
+      enum: ["local", "github"],
+      default: "local",
     },
     // Alert preferences
     emailAlertsEnabled: {
@@ -73,7 +83,8 @@ const userSchema = new mongoose.Schema(
 
 // Hash password before saving
 userSchema.pre("save", async function (next) {
-  if (!this.isModified("password")) {
+  // Skip hashing if password is not modified or doesn't exist (OAuth users)
+  if (!this.isModified("password") || !this.password) {
     return next();
   }
 
