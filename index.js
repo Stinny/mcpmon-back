@@ -1,27 +1,23 @@
+// Load environment variables FIRST before any other imports
+import './config/env.js';
+
 import express from "express";
 import cors from "cors";
-import dotenv from "dotenv";
 import { createServer } from "http";
 import passport from "passport";
 import connectDB from "./config/db.js";
 import { configurePassport } from "./config/passport.js";
+import { verifyEnv } from "./config/env.js";
 import indexRoutes from "./routes/index.js";
 import authRoutes from "./routes/auth.js";
 import monitorRoutes from "./routes/monitors.js";
 import feedbackRoutes from "./routes/feedback.js";
 import contactRoutes from "./routes/contact.js";
 import subscribeRoutes from "./routes/subscribe.js";
+import securityRoutes from "./routes/security.js";
 import { startScheduler, runImmediateCheck } from "./services/scheduler.js";
+import { startSecurityScheduler } from "./services/securityScheduler.js";
 import { initializeWebSocket, closeWebSocket } from "./services/websocket.js";
-
-dotenv.config();
-
-// Verify encryption key is loaded
-if (!process.env.ENCRYPTION_KEY) {
-  console.error("❌ ERROR: ENCRYPTION_KEY environment variable is not set!");
-  console.error("Generate one with: node -e \"console.log(require('crypto').randomBytes(32).toString('base64'))\"");
-  process.exit(1);
-}
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -35,6 +31,7 @@ app.use(passport.initialize());
 
 app.use("/api/auth", authRoutes);
 app.use("/api/monitors", monitorRoutes);
+app.use("/api/security-scans", securityRoutes);
 app.use("/api/feedback", feedbackRoutes);
 app.use("/api/contact", contactRoutes);
 app.use("/api/subscribe", subscribeRoutes);
@@ -47,7 +44,11 @@ initializeWebSocket(server);
 // Connect to database and start server
 async function startServer() {
   try {
-    console.log("🔄 Connecting to database...");
+    // Verify environment variables are loaded
+    console.log("\n🔍 Verifying environment configuration...");
+    verifyEnv();
+
+    console.log("\n🔄 Connecting to database...");
     // Wait for database connection
     await connectDB();
     console.log("✅ Database connected successfully");
@@ -57,9 +58,14 @@ async function startServer() {
       console.log(`📅 Time: ${new Date().toISOString()}\n`);
 
       // Start the monitor check scheduler (runs every 1 minute)
-      console.log("🕐 Starting scheduler...");
+      console.log("🕐 Starting monitor scheduler...");
       const job = startScheduler();
-      console.log("✅ Scheduler started:", job ? "SUCCESS" : "FAILED");
+      console.log("✅ Monitor scheduler started:", job ? "SUCCESS" : "FAILED");
+
+      // Start the security scan scheduler (runs every 30 minutes)
+      console.log("🔒 Starting security scan scheduler...");
+      startSecurityScheduler();
+      console.log("✅ Security scan scheduler started");
 
       // Run an immediate check to verify everything works
       console.log("\n🧪 Running immediate test check...");

@@ -4,6 +4,7 @@ import VerificationEmail from "../emails/VerificationEmail.js";
 import PasswordResetEmail from "../emails/PasswordResetEmail.js";
 import MonitorDownEmail from "../emails/MonitorDownEmail.js";
 import MonitorRecoveryEmail from "../emails/MonitorRecoveryEmail.js";
+import SecurityAlertEmail from "../emails/SecurityAlertEmail.js";
 
 // Lazy initialize Resend client
 let resend = null;
@@ -378,6 +379,83 @@ export async function sendMonitorRecoveryAlert(
       error,
     );
     // Don't throw - we don't want email failures to crash monitoring
+    return null;
+  }
+}
+
+/**
+ * Send security alert email
+ * @param {Object} params - Email parameters
+ * @param {string} params.email - Email address to send to
+ * @param {string} params.monitorName - Monitor name
+ * @param {string} params.monitorUrl - Monitor URL
+ * @param {string} params.riskLevel - Risk level (safe, low, medium, high, critical)
+ * @param {number} params.totalScanned - Total number of tools scanned
+ * @param {number} params.unsafeCount - Number of unsafe tools
+ * @param {Array} params.highSeverityFindings - Array of high severity findings
+ * @param {Date} params.scanDate - Date of the scan
+ * @returns {Promise<Object>} - Resend API response
+ */
+export async function sendSecurityAlert({
+  email,
+  monitorName,
+  monitorUrl,
+  riskLevel,
+  totalScanned,
+  unsafeCount,
+  highSeverityFindings,
+  scanDate,
+}) {
+  try {
+    console.log(
+      `[Email Service] Sending security alert for ${monitorName} to ${email}`,
+    );
+
+    const frontendUrl = process.env.FRONTEND_URL || "http://localhost:5173";
+    const dashboardUrl = `${frontendUrl}/monitors/`;
+
+    console.log(`[Email Service] Rendering security alert email template...`);
+
+    // Render email template
+    const emailComponent = SecurityAlertEmail({
+      monitorName,
+      monitorUrl,
+      riskLevel,
+      totalScanned,
+      unsafeCount,
+      highSeverityFindings,
+      scanDate,
+      dashboardUrl,
+    });
+
+    const htmlString = await render(emailComponent);
+
+    // Send email using Resend
+    const client = getResendClient();
+    const fromEmail = process.env.RESEND_FROM_EMAIL || "onboarding@resend.dev";
+    const emailData = {
+      from: `MCPMon Security <${fromEmail}>`,
+      to: email,
+      subject: `Security Alert: ${monitorName} - ${riskLevel.toUpperCase()} Risk Detected`,
+      html: htmlString,
+    };
+
+    console.log(
+      `[Email Service] Sending security alert from ${emailData.from} to ${emailData.to}`,
+    );
+    const response = await client.emails.send(emailData);
+
+    console.log(
+      `✓ Security alert sent for ${monitorName} to ${email}`,
+      response,
+    );
+    return response;
+  } catch (error) {
+    console.error(
+      `✗ Failed to send security alert for ${monitorName}:`,
+      error,
+    );
+    // Don't throw - we don't want email failures to crash scanning
     return null;
   }
 }

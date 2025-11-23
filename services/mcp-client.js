@@ -75,7 +75,10 @@ async function readFirstSSEMessage(response) {
           currentData.push(line.substring(5).trim());
         } else if (line === "") {
           // Empty line marks end of event
-          if (currentEvent === "message" || (currentEvent === null && currentData.length > 0)) {
+          if (
+            currentEvent === "message" ||
+            (currentEvent === null && currentData.length > 0)
+          ) {
             // We got a message event, try to parse it
             const jsonStr = currentData.join("\n");
             try {
@@ -583,7 +586,8 @@ export async function testMCPConnectionWithTools(monitor) {
               return {
                 success: false,
                 responseTime: Date.now() - startTime,
-                error: retryToolsResult.error || "Tool discovery failed after retry",
+                error:
+                  retryToolsResult.error || "Tool discovery failed after retry",
                 tools: [],
               };
             }

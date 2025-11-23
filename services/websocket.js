@@ -164,6 +164,41 @@ export function broadcastMultipleUpdates(updates) {
 }
 
 /**
+ * Broadcast security scan update to all connected clients for a specific user
+ * @param {String} userId - User ID to send update to
+ * @param {Object} securityData - Security scan data to broadcast
+ */
+export function broadcastSecurityUpdate(userId, securityData) {
+  if (!wss) {
+    console.warn("WebSocket server not initialized");
+    return;
+  }
+
+  const message = JSON.stringify({
+    type: "security_update",
+    data: securityData,
+    timestamp: new Date().toISOString(),
+  });
+
+  let sentCount = 0;
+  wss.clients.forEach((client) => {
+    if (
+      client.userId === userId.toString() &&
+      client.readyState === 1 // WebSocket.OPEN
+    ) {
+      client.send(message);
+      sentCount++;
+    }
+  });
+
+  if (sentCount > 0) {
+    console.log(
+      `Broadcasted security update to ${sentCount} client(s) for user ${userId}`,
+    );
+  }
+}
+
+/**
  * Get connected client count
  * @returns {Number} Number of connected clients
  */

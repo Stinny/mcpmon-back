@@ -13,6 +13,7 @@ import {
   shouldSendDailyReminder,
 } from "./emailService.js";
 import { sendMonitorDownSMS, sendMonitorRecoverySMS } from "./smsService.js";
+import { scanMonitor } from "./securityScanner.js";
 
 /**
  * Check a single monitor's health
@@ -129,6 +130,30 @@ export async function checkSingleMonitor(monitor) {
         // Reset alert tracking on recovery
         monitor.alertsSentCount = 0;
         monitor.lastAlertSentAt = null;
+      }
+
+      // Trigger initial security scan for new monitors
+      const isNewMonitor = previousStatus === "unknown";
+      const hasNeverBeenScanned = !monitor.lastSecurityScan;
+
+      if (isNewMonitor && hasNeverBeenScanned && monitor.securityScanEnabled) {
+        console.log(
+          `🔒 Triggering initial security scan for new monitor "${monitor.name}"`,
+        );
+
+        // Trigger scan asynchronously (don't wait for completion)
+        scanMonitor(monitor)
+          .then((scan) => {
+            console.log(
+              `✓ Initial security scan completed for monitor "${monitor.name}" - Risk: ${scan.riskLevel}`,
+            );
+          })
+          .catch((error) => {
+            console.error(
+              `✗ Initial security scan failed for monitor "${monitor.name}":`,
+              error.message,
+            );
+          });
       }
 
       // Handle warnings (e.g., HTTP errors like 4xx, 5xx)

@@ -100,20 +100,22 @@ const monitorSchema = new mongoose.Schema(
     },
 
     // Tool discovery
-    tools: [{
-      name: {
-        type: String,
-        required: true,
+    tools: [
+      {
+        name: {
+          type: String,
+          required: true,
+        },
+        description: {
+          type: String,
+          default: "",
+        },
+        inputSchema: {
+          type: mongoose.Schema.Types.Mixed,
+          default: null,
+        },
       },
-      description: {
-        type: String,
-        default: "",
-      },
-      inputSchema: {
-        type: mongoose.Schema.Types.Mixed,
-        default: null,
-      },
-    }],
+    ],
     lastToolsSync: {
       type: Date,
       default: null,
@@ -121,6 +123,27 @@ const monitorSchema = new mongoose.Schema(
     toolsSyncEnabled: {
       type: Boolean,
       default: true,
+    },
+
+    // Security scanning
+    securityScanEnabled: {
+      type: Boolean,
+      default: true,
+    },
+    securityStatus: {
+      type: String,
+      enum: ["safe", "low", "medium", "high", "critical"],
+      default: "safe",
+    },
+    lastSecurityScan: {
+      type: Date,
+      default: null,
+    },
+    securityScanInterval: {
+      type: Number,
+      default: 0.5, // hours (30 minutes)
+      min: [0.5, "Security scan interval must be at least 30 minutes"],
+      max: [168, "Security scan interval cannot exceed 168 hours (1 week)"],
     },
 
     // Monitoring data

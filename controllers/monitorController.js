@@ -411,7 +411,7 @@ export const resumeMonitor = async (req, res) => {
 export const getPublicMonitorStatus = async (req, res) => {
   try {
     const monitor = await Monitor.findById(req.params.id).select(
-      "name description url authType status uptimePercentage totalChecks averageResponseTime lastCheckedAt createdAt tools lastToolsSync protocolVersion",
+      "name description url authType status uptimePercentage totalChecks averageResponseTime lastCheckedAt createdAt tools lastToolsSync protocolVersion securityStatus lastSecurityScan securityScanEnabled",
     );
 
     if (!monitor) {
@@ -426,6 +426,47 @@ export const getPublicMonitorStatus = async (req, res) => {
       data: monitor,
     });
   } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+// @desc    Get public security scans for a monitor
+// @route   GET /api/monitors/public/:id/security-scans
+// @access  Public
+export const getPublicSecurityScans = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const limit = parseInt(req.query.limit) || 10;
+
+    // Verify monitor exists
+    const monitor = await Monitor.findById(id);
+
+    if (!monitor) {
+      return res.status(404).json({
+        success: false,
+        message: "Monitor not found",
+      });
+    }
+
+    // Import SecurityScan model and getScanHistory
+    const SecurityScan = (await import("../models/SecurityScan.js")).default;
+
+    // Get scan history for this monitor
+    const scans = await SecurityScan.find({ monitorId: id })
+      .sort({ scannedAt: -1 })
+      .limit(limit)
+      .select("-__v");
+
+    res.status(200).json({
+      success: true,
+      count: scans.length,
+      data: scans,
+    });
+  } catch (error) {
+    console.error("Error fetching public security scans:", error);
     res.status(500).json({
       success: false,
       message: error.message,
