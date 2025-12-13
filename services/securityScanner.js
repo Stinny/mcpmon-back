@@ -1,19 +1,19 @@
-import axios from 'axios';
-import Monitor from '../models/Monitor.js';
-import SecurityScan from '../models/SecurityScan.js';
-import { sendSecurityAlert } from './emailService.js';
-import { broadcastSecurityUpdate } from './websocket.js';
+import axios from "axios";
+import Monitor from "../models/Monitor.js";
+import SecurityScan from "../models/SecurityScan.js";
+import { sendSecurityAlert } from "./emailService.js";
+import { broadcastSecurityUpdate } from "./websocket.js";
 
 // Function to get scanner configuration (allows for runtime retrieval)
 function getScannerConfig() {
   return {
-    baseUrl: process.env.MCP_SCANNER_URL || 'https://mcpscan.onrender.com',
-    apiKey: process.env.MCP_SCANNER_API_KEY
+    baseUrl: process.env.MCP_SCANNER_URL || "https://mcpscan.onrender.com",
+    apiKey: process.env.MCP_SCANNER_API_KEY,
   };
 }
 
 // Default analyzers to use for scans
-const DEFAULT_ANALYZERS = ['api', 'yara', 'llm'];
+const DEFAULT_ANALYZERS = ["yara"];
 
 /**
  * Scan a monitor's MCP server for security vulnerabilities
@@ -25,9 +25,15 @@ export async function scanMonitor(monitor, analyzers = DEFAULT_ANALYZERS) {
   const config = getScannerConfig();
 
   if (!config.apiKey) {
-    const errorMsg = 'MCP_SCANNER_API_KEY is not configured in environment variables';
+    const errorMsg =
+      "MCP_SCANNER_API_KEY is not configured in environment variables";
     console.error(`[SecurityScanner] ${errorMsg}`);
-    console.error('[SecurityScanner] Available env keys:', Object.keys(process.env).filter(k => k.includes('MCP')).join(', '));
+    console.error(
+      "[SecurityScanner] Available env keys:",
+      Object.keys(process.env)
+        .filter((k) => k.includes("MCP"))
+        .join(", "),
+    );
     throw new Error(errorMsg);
   }
 
@@ -35,10 +41,10 @@ export async function scanMonitor(monitor, analyzers = DEFAULT_ANALYZERS) {
   const scan = new SecurityScan({
     monitorId: monitor._id,
     userId: monitor.userId,
-    status: 'running',
-    scanType: 'tools',
+    status: "running",
+    scanType: "tools",
     analyzers,
-    scannedAt: new Date()
+    scannedAt: new Date(),
   });
 
   try {
@@ -52,10 +58,12 @@ export async function scanMonitor(monitor, analyzers = DEFAULT_ANALYZERS) {
       server_url: monitor.url,
       auth,
       analyzers,
-      output_format: 'summary'
+      output_format: "summary",
     };
 
-    console.log(`[SecurityScanner] Starting scan for monitor: ${monitor.name} (${monitor._id})`);
+    console.log(
+      `[SecurityScanner] Starting scan for monitor: ${monitor.name} (${monitor._id})`,
+    );
     console.log(`[SecurityScanner] Scanner URL: ${config.baseUrl}`);
 
     // Call MCP scanner API
@@ -64,17 +72,17 @@ export async function scanMonitor(monitor, analyzers = DEFAULT_ANALYZERS) {
       scanRequest,
       {
         headers: {
-          'X-API-Key': config.apiKey,
-          'Content-Type': 'application/json'
+          "X-API-Key": config.apiKey,
+          "Content-Type": "application/json",
         },
-        timeout: 300000 // 5 minutes timeout
-      }
+        timeout: 300000, // 5 minutes timeout
+      },
     );
 
     // Process and save results
     const results = response.data;
     scan.results = results;
-    scan.status = 'completed';
+    scan.status = "completed";
     scan.completedAt = new Date();
     scan.duration = scan.completedAt - scan.scannedAt;
 
@@ -88,10 +96,12 @@ export async function scanMonitor(monitor, analyzers = DEFAULT_ANALYZERS) {
     monitor.lastSecurityScan = new Date();
     await monitor.save();
 
-    console.log(`[SecurityScanner] Scan completed for monitor: ${monitor.name} - Risk: ${scan.riskLevel}`);
+    console.log(
+      `[SecurityScanner] Scan completed for monitor: ${monitor.name} - Risk: ${scan.riskLevel}`,
+    );
 
     // Send alerts if high-risk findings detected
-    if (scan.riskLevel === 'high' || scan.riskLevel === 'critical') {
+    if (scan.riskLevel === "high" || scan.riskLevel === "critical") {
       await handleSecurityAlert(monitor, scan);
     }
 
@@ -102,18 +112,20 @@ export async function scanMonitor(monitor, analyzers = DEFAULT_ANALYZERS) {
         monitorName: monitor.name,
         scanId: scan._id,
         riskLevel: scan.riskLevel,
-        scannedAt: scan.scannedAt
+        scannedAt: scan.scannedAt,
       });
     }
 
     return scan;
-
   } catch (error) {
-    console.error(`[SecurityScanner] Scan failed for monitor: ${monitor.name}`, error.message);
+    console.error(
+      `[SecurityScanner] Scan failed for monitor: ${monitor.name}`,
+      error.message,
+    );
 
     // Update scan with error
-    scan.status = 'failed';
-    scan.errorMessage = error.message || 'Unknown error during scan';
+    scan.status = "failed";
+    scan.errorMessage = error.message || "Unknown error during scan";
     scan.completedAt = new Date();
     scan.duration = scan.completedAt - scan.scannedAt;
     await scan.save();
@@ -128,28 +140,28 @@ export async function scanMonitor(monitor, analyzers = DEFAULT_ANALYZERS) {
  * @returns {Object} Auth configuration for scanner API
  */
 function prepareAuthConfig(monitor) {
-  if (monitor.authType === 'none') {
-    return { type: 'none' };
+  if (monitor.authType === "none") {
+    return { type: "none" };
   }
 
   const decryptedToken = monitor.getDecryptedAuthToken();
 
-  if (monitor.authType === 'bearer') {
+  if (monitor.authType === "bearer") {
     return {
-      type: 'bearer',
-      bearer_token: decryptedToken
+      type: "bearer",
+      bearer_token: decryptedToken,
     };
   }
 
-  if (monitor.authType === 'apikey') {
+  if (monitor.authType === "apikey") {
     return {
-      type: 'apikey',
+      type: "apikey",
       api_key: decryptedToken,
-      api_key_header: monitor.authHeaderName || 'X-API-Key'
+      api_key_header: monitor.authHeaderName || "X-API-Key",
     };
   }
 
-  return { type: 'none' };
+  return { type: "none" };
 }
 
 /**
@@ -167,14 +179,16 @@ async function handleSecurityAlert(monitor, scan) {
     // Extract high severity findings
     const highSeverityFindings = [];
     if (scan.results && scan.results.results) {
-      scan.results.results.forEach(result => {
+      scan.results.results.forEach((result) => {
         if (result.findings) {
-          const highFindings = result.findings.filter(f => f.severity === 'HIGH');
-          highFindings.forEach(finding => {
+          const highFindings = result.findings.filter(
+            (f) => f.severity === "HIGH",
+          );
+          highFindings.forEach((finding) => {
             highSeverityFindings.push({
               tool: result.tool_name,
               summary: finding.summary,
-              analyzer: finding.analyzer
+              analyzer: finding.analyzer,
             });
           });
         }
@@ -190,13 +204,17 @@ async function handleSecurityAlert(monitor, scan) {
       totalScanned: scan.results.total_scanned,
       unsafeCount: scan.results.unsafe_count,
       highSeverityFindings,
-      scanDate: scan.scannedAt
+      scanDate: scan.scannedAt,
     });
 
-    console.log(`[SecurityScanner] Alert sent to ${monitor.alertEmail} for monitor: ${monitor.name}`);
-
+    console.log(
+      `[SecurityScanner] Alert sent to ${monitor.alertEmail} for monitor: ${monitor.name}`,
+    );
   } catch (error) {
-    console.error(`[SecurityScanner] Failed to send security alert:`, error.message);
+    console.error(
+      `[SecurityScanner] Failed to send security alert:`,
+      error.message,
+    );
   }
 }
 
@@ -209,7 +227,10 @@ export async function getLatestScan(monitorId) {
   try {
     return await SecurityScan.getLatestForMonitor(monitorId);
   } catch (error) {
-    console.error(`[SecurityScanner] Error fetching latest scan:`, error.message);
+    console.error(
+      `[SecurityScanner] Error fetching latest scan:`,
+      error.message,
+    );
     return null;
   }
 }
@@ -225,10 +246,13 @@ export async function getScanHistory(monitorId, limit = 10) {
     return await SecurityScan.find({ monitorId })
       .sort({ scannedAt: -1 })
       .limit(limit)
-      .select('-results.results.findings.details') // Exclude detailed findings for performance
+      .select("-results.results.findings.details") // Exclude detailed findings for performance
       .exec();
   } catch (error) {
-    console.error(`[SecurityScanner] Error fetching scan history:`, error.message);
+    console.error(
+      `[SecurityScanner] Error fetching scan history:`,
+      error.message,
+    );
     return [];
   }
 }
@@ -242,7 +266,10 @@ export async function getUserSecurityStats(userId) {
   try {
     return await SecurityScan.getUserStats(userId);
   } catch (error) {
-    console.error(`[SecurityScanner] Error fetching user security stats:`, error.message);
+    console.error(
+      `[SecurityScanner] Error fetching user security stats:`,
+      error.message,
+    );
     return {
       totalScans: 0,
       safe: 0,
@@ -250,7 +277,7 @@ export async function getUserSecurityStats(userId) {
       medium: 0,
       high: 0,
       critical: 0,
-      lastScanDate: null
+      lastScanDate: null,
     };
   }
 }
@@ -271,7 +298,8 @@ export function needsSecurityScan(monitor) {
   }
 
   // Check if scan interval has passed
-  const hoursSinceLastScan = (Date.now() - monitor.lastSecurityScan.getTime()) / (1000 * 60 * 60);
+  const hoursSinceLastScan =
+    (Date.now() - monitor.lastSecurityScan.getTime()) / (1000 * 60 * 60);
   return hoursSinceLastScan >= monitor.securityScanInterval;
 }
 
@@ -281,20 +309,20 @@ export function needsSecurityScan(monitor) {
  */
 export async function scanAllMonitors() {
   try {
-    console.log('[SecurityScanner] Starting scheduled security scans...');
+    console.log("[SecurityScanner] Starting scheduled security scans...");
 
     // Find all active monitors that need scanning
     const monitors = await Monitor.find({
       isActive: true,
-      securityScanEnabled: true
-    }).select('+authToken'); // Include authToken for decryption
+      securityScanEnabled: true,
+    }).select("+authToken"); // Include authToken for decryption
 
     const summary = {
       total: monitors.length,
       scanned: 0,
       failed: 0,
       skipped: 0,
-      results: {}
+      results: {},
     };
 
     for (const monitor of monitors) {
@@ -314,19 +342,20 @@ export async function scanAllMonitors() {
         summary.results[riskLevel] = (summary.results[riskLevel] || 0) + 1;
 
         // Add delay between scans to avoid overwhelming the scanner API
-        await new Promise(resolve => setTimeout(resolve, 2000));
-
+        await new Promise((resolve) => setTimeout(resolve, 2000));
       } catch (error) {
-        console.error(`[SecurityScanner] Failed to scan monitor ${monitor.name}:`, error.message);
+        console.error(
+          `[SecurityScanner] Failed to scan monitor ${monitor.name}:`,
+          error.message,
+        );
         summary.failed++;
       }
     }
 
-    console.log('[SecurityScanner] Scheduled scans completed:', summary);
+    console.log("[SecurityScanner] Scheduled scans completed:", summary);
     return summary;
-
   } catch (error) {
-    console.error('[SecurityScanner] Error in scanAllMonitors:', error.message);
+    console.error("[SecurityScanner] Error in scanAllMonitors:", error.message);
     throw error;
   }
 }
@@ -337,5 +366,5 @@ export default {
   getScanHistory,
   getUserSecurityStats,
   needsSecurityScan,
-  scanAllMonitors
+  scanAllMonitors,
 };

@@ -8,7 +8,7 @@ let lastRunSummary = null;
 
 /**
  * Start the security scan scheduler
- * Runs every 30 minutes
+ * Runs every 10 minutes
  */
 export function startSecurityScheduler() {
   if (securityScanJob) {
@@ -16,9 +16,9 @@ export function startSecurityScheduler() {
     return;
   }
 
-  // Schedule security scans to run every 30 minutes
-  // Cron pattern: '*/30 * * * *' = Every 30 minutes
-  securityScanJob = cron.schedule('*/30 * * * *', async () => {
+  // Schedule security scans to run every 10 minutes
+  // Cron pattern: '*/10 * * * *' = Every 10 minutes
+  securityScanJob = cron.schedule('*/10 * * * *', async () => {
     if (isRunning) {
       console.log('[SecurityScheduler] Previous scan still running, skipping...');
       return;
@@ -45,7 +45,7 @@ export function startSecurityScheduler() {
     timezone: 'UTC'
   });
 
-  console.log('[SecurityScheduler] Security scan scheduler started - runs every 30 minutes');
+  console.log('[SecurityScheduler] Security scan scheduler started - runs every 10 minutes');
 }
 
 /**
@@ -100,7 +100,7 @@ export function getSecuritySchedulerStatus() {
     isRunning,
     lastRunTime,
     lastRunSummary,
-    schedule: '*/30 * * * * (Every 30 minutes)'
+    schedule: '*/10 * * * * (Every 10 minutes)'
   };
 }
 
