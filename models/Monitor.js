@@ -70,19 +70,18 @@ const monitorSchema = new mongoose.Schema(
     },
 
     // Authentication configuration
-    authType: {
+    requiresAuth: {
+      type: Boolean,
+      default: false,
+    },
+    authHeader: {
       type: String,
-      enum: ["none", "bearer", "apikey"],
-      default: "none",
+      default: "Authorization",
     },
     authToken: {
       type: String, // Stored encrypted
       default: null,
       select: false, // Don't return in queries by default
-    },
-    authHeaderName: {
-      type: String,
-      default: "Authorization", // For API key: can be "X-API-Key" etc.
     },
 
     // MCP session management
@@ -217,6 +216,22 @@ const monitorSchema = new mongoose.Schema(
       default: null,
     },
 
+    // Security alert tracking
+    securityAlertLastSentAt: {
+      type: Date,
+      default: null,
+    },
+    securityAlertDayCount: {
+      type: Number,
+      default: 0,
+      min: 0,
+      max: 3,
+    },
+    securityAlertFirstDetectedAt: {
+      type: Date,
+      default: null,
+    },
+
     // Metadata
     description: {
       type: String,
@@ -296,10 +311,10 @@ monitorSchema.methods.updateStatus = async function (
 
 // Method to get decrypted auth token
 monitorSchema.methods.getDecryptedAuthToken = function () {
-  if (!this.authToken || this.authType === "none") {
+  if (!this.authToken || !this.requiresAuth) {
     return null;
   }
-  return decryptAuthToken(this.authType, this.authToken);
+  return decryptAuthToken(this.authToken);
 };
 
 const Monitor = mongoose.model("Monitor", monitorSchema);

@@ -19,9 +19,9 @@ export const createMonitor = async (req, res) => {
       notifyOnRecovery,
       description,
       tags,
-      authType,
+      requiresAuth,
+      authHeader,
       authToken,
-      authHeaderName,
       toolsSyncEnabled,
       protocolVersion,
     } = req.body;
@@ -49,9 +49,9 @@ export const createMonitor = async (req, res) => {
 
     // Encrypt auth token if provided
     let encryptedAuthToken = null;
-    if (authToken && authType && authType !== "none") {
+    if (authToken && requiresAuth) {
       try {
-        encryptedAuthToken = encryptAuthToken(authType, authToken);
+        encryptedAuthToken = encryptAuthToken(authToken);
       } catch (encryptError) {
         console.error("Encryption error:", encryptError);
         return res.status(500).json({
@@ -77,9 +77,9 @@ export const createMonitor = async (req, res) => {
       notifyOnRecovery,
       description,
       tags,
-      authType,
+      requiresAuth,
+      authHeader,
       authToken: encryptedAuthToken,
-      authHeaderName,
       toolsSyncEnabled,
       protocolVersion,
     });
@@ -210,8 +210,8 @@ export const updateMonitor = async (req, res) => {
       "description",
       "tags",
       "isActive",
-      "authType",
-      "authHeaderName",
+      "requiresAuth",
+      "authHeader",
       "toolsSyncEnabled",
       "protocolVersion",
     ];
@@ -226,14 +226,11 @@ export const updateMonitor = async (req, res) => {
     // Handle auth token encryption separately
     if (req.body.authToken !== undefined) {
       let encryptedAuthToken = null;
-      const tokenAuthType = req.body.authType || monitor.authType;
+      const requiresAuthValue = req.body.requiresAuth !== undefined ? req.body.requiresAuth : monitor.requiresAuth;
 
-      if (req.body.authToken && tokenAuthType && tokenAuthType !== "none") {
+      if (req.body.authToken && requiresAuthValue) {
         try {
-          encryptedAuthToken = encryptAuthToken(
-            tokenAuthType,
-            req.body.authToken,
-          );
+          encryptedAuthToken = encryptAuthToken(req.body.authToken);
         } catch (encryptError) {
           console.error("Encryption error:", encryptError);
           return res.status(500).json({

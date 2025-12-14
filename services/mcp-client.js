@@ -129,10 +129,8 @@ function buildAuthHeaders(monitor) {
     ? monitor.getDecryptedAuthToken()
     : null;
 
-  if (decryptedToken && monitor.authType === "bearer") {
-    headers["Authorization"] = `Bearer ${decryptedToken}`;
-  } else if (decryptedToken && monitor.authType === "apikey") {
-    const headerName = monitor.authHeaderName || "X-API-Key";
+  if (decryptedToken && monitor.requiresAuth) {
+    const headerName = monitor.authHeader || "Authorization";
     headers[headerName] = decryptedToken;
   }
 

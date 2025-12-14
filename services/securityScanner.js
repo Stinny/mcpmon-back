@@ -92,8 +92,25 @@ export async function scanMonitor(monitor, analyzers = DEFAULT_ANALYZERS) {
     await scan.save();
 
     // Update monitor's security status
+    const previousStatus = monitor.securityStatus;
     monitor.securityStatus = scan.riskLevel;
     monitor.lastSecurityScan = new Date();
+
+    // Reset alert counters if security status improved from high/critical
+    if (
+      (previousStatus === "high" || previousStatus === "critical") &&
+      (scan.riskLevel === "safe" ||
+        scan.riskLevel === "low" ||
+        scan.riskLevel === "medium")
+    ) {
+      monitor.securityAlertDayCount = 0;
+      monitor.securityAlertLastSentAt = null;
+      monitor.securityAlertFirstDetectedAt = null;
+      console.log(
+        `[SecurityScanner] Security status improved for ${monitor.name}, reset alert counters`,
+      );
+    }
+
     await monitor.save();
 
     console.log(
@@ -140,32 +157,32 @@ export async function scanMonitor(monitor, analyzers = DEFAULT_ANALYZERS) {
  * @returns {Object} Auth configuration for scanner API
  */
 function prepareAuthConfig(monitor) {
-  if (monitor.authType === "none") {
+  if (!monitor.requiresAuth) {
     return { type: "none" };
   }
 
   const decryptedToken = monitor.getDecryptedAuthToken();
+  const headerName = monitor.authHeader || "Authorization";
 
-  if (monitor.authType === "bearer") {
+  // If using standard Authorization header, send as bearer token
+  if (headerName === "Authorization") {
     return {
       type: "bearer",
       bearer_token: decryptedToken,
     };
   }
 
-  if (monitor.authType === "apikey") {
-    return {
-      type: "apikey",
-      api_key: decryptedToken,
-      api_key_header: monitor.authHeaderName || "X-API-Key",
-    };
-  }
-
-  return { type: "none" };
+  // Otherwise send as API key with custom header
+  return {
+    type: "apikey",
+    api_key: decryptedToken,
+    api_key_header: headerName,
+  };
 }
 
 /**
  * Handle security alert when high-risk findings are detected
+ * Sends one email per day for up to 3 days
  * @param {Object} monitor - Monitor document
  * @param {Object} scan - SecurityScan document
  */
@@ -173,6 +190,40 @@ async function handleSecurityAlert(monitor, scan) {
   try {
     // Only send alerts if enabled and email is configured
     if (!monitor.alertsEnabled || !monitor.alertEmail) {
+      return;
+    }
+
+    const now = new Date();
+
+    // Check if we've already sent 3 days of alerts
+    if (monitor.securityAlertDayCount >= 3) {
+      console.log(
+        `[SecurityScanner] Alert limit reached (3 days) for monitor: ${monitor.name}`,
+      );
+      return;
+    }
+
+    // Check if we should send an alert (one per day)
+    let shouldSendAlert = false;
+
+    if (!monitor.securityAlertLastSentAt) {
+      // First alert for this issue
+      shouldSendAlert = true;
+    } else {
+      // Check if at least 24 hours have passed since last alert
+      const hoursSinceLastAlert =
+        (now - monitor.securityAlertLastSentAt) / (1000 * 60 * 60);
+      if (hoursSinceLastAlert >= 24) {
+        shouldSendAlert = true;
+      } else {
+        console.log(
+          `[SecurityScanner] Alert already sent today for monitor: ${monitor.name}`,
+        );
+        return;
+      }
+    }
+
+    if (!shouldSendAlert) {
       return;
     }
 
@@ -207,8 +258,16 @@ async function handleSecurityAlert(monitor, scan) {
       scanDate: scan.scannedAt,
     });
 
+    // Update alert tracking
+    if (!monitor.securityAlertFirstDetectedAt) {
+      monitor.securityAlertFirstDetectedAt = now;
+    }
+    monitor.securityAlertLastSentAt = now;
+    monitor.securityAlertDayCount += 1;
+    await monitor.save();
+
     console.log(
-      `[SecurityScanner] Alert sent to ${monitor.alertEmail} for monitor: ${monitor.name}`,
+      `[SecurityScanner] Alert sent to ${monitor.alertEmail} for monitor: ${monitor.name} (Day ${monitor.securityAlertDayCount}/3)`,
     );
   } catch (error) {
     console.error(

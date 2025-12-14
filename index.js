@@ -15,6 +15,7 @@ import feedbackRoutes from "./routes/feedback.js";
 import contactRoutes from "./routes/contact.js";
 import subscribeRoutes from "./routes/subscribe.js";
 import securityRoutes from "./routes/security.js";
+import publicRoutes from "./routes/public.js";
 import { startScheduler, runImmediateCheck } from "./services/scheduler.js";
 import { startSecurityScheduler } from "./services/securityScheduler.js";
 import { initializeWebSocket, closeWebSocket } from "./services/websocket.js";
@@ -35,6 +36,7 @@ app.use("/api/security-scans", securityRoutes);
 app.use("/api/feedback", feedbackRoutes);
 app.use("/api/contact", contactRoutes);
 app.use("/api/subscribe", subscribeRoutes);
+app.use("/api/public", publicRoutes);
 app.use("/", indexRoutes);
 
 // Create HTTP server and integrate WebSocket

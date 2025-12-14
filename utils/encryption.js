@@ -83,12 +83,11 @@ export function decrypt(encryptedText) {
 
 /**
  * Encrypt auth token
- * @param {string} authType - Type of authentication (none, bearer, apikey)
  * @param {string} token - Authentication token
  * @returns {string} - Encrypted token
  */
-export function encryptAuthToken(authType, token) {
-  if (!token || authType === "none") {
+export function encryptAuthToken(token) {
+  if (!token) {
     return null;
   }
   return encrypt(token);
@@ -96,12 +95,11 @@ export function encryptAuthToken(authType, token) {
 
 /**
  * Decrypt auth token
- * @param {string} authType - Type of authentication (none, bearer, apikey)
  * @param {string} encryptedToken - Encrypted token
  * @returns {string} - Decrypted token
  */
-export function decryptAuthToken(authType, encryptedToken) {
-  if (!encryptedToken || authType === "none") {
+export function decryptAuthToken(encryptedToken) {
+  if (!encryptedToken) {
     return null;
   }
   try {
